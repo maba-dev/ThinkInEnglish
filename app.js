@@ -315,7 +315,7 @@ function pqPick(b) {
 }
 
 /* ================= PAGES ================= */
-const state = { storyLvl: "all", grammarLvl: "all", chunkCat: "all", chunkQ: "", chunkMode: "list", pvCat: "all", pvPart: "", pvQ: "", pvMode: "list", vocabTab: "learn", audioTab: "picture", audioLvl: "A2", phonTab: "lessons", ipaSel: null, pairSet: "i", dictLvl: "A2", dictI: 0, flash: null };
+const state = { storyLvl: "all", grammarLvl: "all", chunkCat: "all", chunkLvl: "all", chunkLimit: 60, chunkQ: "", chunkMode: "list", pvCat: "all", pvPart: "", pvQ: "", pvMode: "list", vocabTab: "learn", audioTab: "picture", audioLvl: "A2", phonTab: "lessons", ipaSel: null, pairSet: "i", dictLvl: "A2", dictI: 0, flash: null };
 
 function pageHome() {
   const w = vocabAll[dayIndex % vocabAll.length];
@@ -519,12 +519,15 @@ function vocabTheme(t) {
 /* ---------- chunks ---------- */
 function pageChunks() {
   const q = norm(state.chunkQ);
-  const list = D.chunks.filter(c => (state.chunkCat === "all" || c.c === +state.chunkCat) && (!q || norm(c.chunk + " " + c.ex).includes(q)));
+  const inLvl = c => state.chunkLvl === "all" || c.lvl === state.chunkLvl;
+  const list = D.chunks.filter(c => inLvl(c) && (state.chunkCat === "all" || c.c === +state.chunkCat) && (!q || norm(c.chunk + " " + c.ex + " " + c.fr).includes(q)));
+  const catCount = i => D.chunks.filter(c => inLvl(c) && c.c === i).length;
   const frHtml = c => settings.immersion ? `<button class="fr-peek" data-act="peek" data-fr="${esc(c.fr)}">voir en français</button>` : `<span class="fr">≈ ${esc(c.fr)}</span>`;
   let body;
   if (state.chunkMode === "flash") {
     const pool = list.length ? list : D.chunks;
-    if (!state.cf || state.cf.key !== state.chunkCat + "|" + q) state.cf = { key: state.chunkCat + "|" + q, c: pick(pool), shown: false };
+    const cfKey = [state.chunkLvl, state.chunkCat, q].join("|");
+    if (!state.cf || state.cf.key !== cfKey) state.cf = { key: cfKey, c: pick(pool), shown: false };
     const c = state.cf.c; const core = c.chunk.replace(/[.,!?…]+$/, "");
     const re = new RegExp(core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     const prompt = re.test(c.ex) ? esc(c.ex).replace(new RegExp(esc(core).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), '<span class="blank">&nbsp;</span>') : `${D.chunkCats[c.c].emoji} ${esc(D.chunkCats[c.c].name)}<br><span class="muted small">Indice : ${esc(core.split(" ").map(w => w[0] + "…").join(" "))}</span>`;
@@ -532,12 +535,13 @@ function pageChunks() {
       ${state.cf.shown ? `<p class="a">${esc(c.chunk)}</p><p class="example muted">${esc(c.ex)}</p><div class="row" style="justify-content:center">${sayBtn(c.ex)}${starBtn("c:" + c.n)}</div>` : `<p class="muted small">Dis le chunk à voix haute en moins de 2 secondes, puis vérifie.</p>`}
       <div class="row" style="justify-content:center">${state.cf.shown ? "" : `<button class="btn primary" data-act="cf-show">Voir le chunk</button>`}<button class="btn" data-act="cf-next">Suivant →</button></div></div></div>`;
   } else {
-    body = `<p class="muted small">${list.length} chunks</p><div class="grid wide">${list.map(c => `<div class="tile ccard${known.has("c:" + c.n) ? " known" : ""}"><div class="tile-top"><span class="pic" style="font-size:1.8rem">${D.chunkCats[c.c].emoji}</span>${lvlTag(c.lvl)}</div><span class="chunk">${esc(c.chunk)}</span><span class="example muted">${esc(c.ex)}</span><div class="acts">${sayBtn(c.chunk)}${sayBtn(c.ex, "Écouter l'exemple")}${starBtn("c:" + c.n)}${frHtml(c)}</div></div>`).join("") || '<p class="empty">Aucun chunk ne correspond.</p>'}</div>`;
+    body = `<p class="muted small">${list.length} chunks${list.length > state.chunkLimit ? ` · ${state.chunkLimit} affichés` : ""}</p><div class="grid wide">${list.slice(0, state.chunkLimit).map(c => `<div class="tile ccard${known.has("c:" + c.n) ? " known" : ""}"><div class="tile-top"><span class="pic" style="font-size:1.8rem">${D.chunkCats[c.c].emoji}</span>${lvlTag(c.lvl)}</div><span class="chunk">${esc(c.chunk)}</span><span class="example muted">${esc(c.ex)}</span><div class="acts">${sayBtn(c.chunk)}${sayBtn(c.ex, "Écouter l'exemple")}${starBtn("c:" + c.n)}${frHtml(c)}</div></div>`).join("") || '<p class="empty">Aucun chunk ne correspond.</p>'}</div>${list.length > state.chunkLimit ? `<button class="btn" data-act="chunk-more" style="align-self:center">Voir 60 de plus (${list.length - state.chunkLimit} restants)</button>` : ""}`;
   }
-  return `<header class="page-head"><span class="eyebrow">Blocs tout faits</span><h1>Chunks</h1><p>Les natifs ne construisent pas leurs phrases mot à mot : ils sortent des blocs tout prêts. Apprends ces ${D.chunks.length} blocs comme un seul mot, à voix haute, d'un seul souffle. Plus tu as de blocs, moins tu traduis.</p></header>
+  return `<header class="page-head"><span class="eyebrow">Blocs tout faits</span><h1>Chunks</h1><p>Les natifs ne construisent pas leurs phrases mot à mot : ils sortent des blocs tout prêts. Voici ${D.chunks.length} blocs classés de A1 à C1 et par situation. Apprends-les comme un seul mot, à voix haute, d'un seul souffle : commence par ton niveau et celui du dessous. Plus tu as de blocs, moins tu traduis.</p></header>
   <div class="toolbar"><input class="search" id="chunk-q" type="search" placeholder="Chercher un chunk…" value="${esc(state.chunkQ)}" aria-label="Chercher un chunk">
     <div class="chips"><button class="chip" data-act="chunk-mode" data-m="list" aria-pressed="${state.chunkMode === "list"}">Liste</button><button class="chip" data-act="chunk-mode" data-m="flash" aria-pressed="${state.chunkMode === "flash"}">Révision (cartes)</button></div></div>
-  <div class="chips"><button class="chip" data-act="chunk-cat" data-c="all" aria-pressed="${state.chunkCat === "all"}">Tous</button>${D.chunkCats.map((c, i) => `<button class="chip" data-act="chunk-cat" data-c="${i}" aria-pressed="${state.chunkCat === String(i)}"><span class="pic">${c.emoji}</span> ${esc(c.name)}</button>`).join("")}</div>
+  <div class="chips" aria-label="Niveau"><button class="chip" data-act="chunk-lvl" data-l="all" aria-pressed="${state.chunkLvl === "all"}">Tous les niveaux · ${D.chunks.length}</button>${LEVELS.map(l => `<button class="chip" data-act="chunk-lvl" data-l="${l}" aria-pressed="${state.chunkLvl === l}">${l} · ${D.chunks.filter(c => c.lvl === l).length}</button>`).join("")}</div>
+  <div class="chips" aria-label="Situation"><button class="chip" data-act="chunk-cat" data-c="all" aria-pressed="${state.chunkCat === "all"}">Toutes les situations</button>${D.chunkCats.map((c, i) => [c, i, catCount(i)]).filter(x => x[2] > 0).map(([c, i, k]) => `<button class="chip" data-act="chunk-cat" data-c="${i}" aria-pressed="${state.chunkCat === String(i)}"><span class="pic">${c.emoji}</span> ${esc(c.name)} <span class="muted">${k}</span></button>`).join("")}</div>
   <div id="chunk-body" style="display:flex;flex-direction:column;gap:12px">${body}</div>`;
 }
 
@@ -999,7 +1003,9 @@ const ACTS = {
   "vw-check": () => { const f = state.flash; const x = f.order[f.i % f.order.length]; const ok = norm($("#vw-in").value) === norm(x.w.split(" / ")[0].replace(/\(.*?\)/g, "")); const r = $("#vw-res"); if (ok) { if (!f.answered) f.ok++; f.answered = true; r.innerHTML = `<span style="color:var(--good)">Oui : ${esc(x.w)}</span> <span class="ipa">${esc(x.ipa)}</span> <button class="btn" data-act="vw-next">Suivant →</button>`; Audio.speak(x.w); } else { f.answered = true; r.innerHTML = `<span style="color:var(--bad)">Pas tout à fait.</span> <button class="btn ghost" data-act="vw-show">Voir la réponse</button>`; } },
   "vw-show": () => { const f = state.flash; const x = f.order[f.i % f.order.length]; f.answered = true; $("#vw-res").innerHTML = `${esc(x.w)} <span class="ipa">${esc(x.ipa)}</span> <button class="btn" data-act="vw-next">Suivant →</button>`; Audio.speak(x.w); },
   "vw-next": () => { state.flash.i++; state.flash.answered = false; rerender(); setTimeout(() => { const i = $("#vw-in"); if (i) i.focus(); }, 0); },
-  "chunk-cat": b => { state.chunkCat = b.dataset.c; rerender(); },
+  "chunk-cat": b => { state.chunkCat = b.dataset.c; state.chunkLimit = 60; rerender(); },
+  "chunk-lvl": b => { state.chunkLvl = b.dataset.l; state.chunkCat = "all"; state.chunkLimit = 60; rerender(); },
+  "chunk-more": () => { state.chunkLimit += 60; rerender(); },
   "chunk-mode": b => { state.chunkMode = b.dataset.m; rerender(); },
   "cf-show": () => { state.cf.shown = true; rerender(); Audio.speak(state.cf.c.chunk); },
   "cf-next": () => { state.cf = null; rerender(); },
@@ -1039,7 +1045,7 @@ document.addEventListener("click", e => {
   const fn = ACTS[b.dataset.act]; if (fn) { e.preventDefault(); fn(b, e); }
 });
 document.addEventListener("input", e => {
-  if (e.target.id === "chunk-q") { state.chunkQ = e.target.value; const pos = e.target.selectionStart; rerender(); const i = $("#chunk-q"); i.focus(); i.setSelectionRange(pos, pos); }
+  if (e.target.id === "chunk-q") { state.chunkQ = e.target.value; state.chunkLimit = 60; const pos = e.target.selectionStart; rerender(); const i = $("#chunk-q"); i.focus(); i.setSelectionRange(pos, pos); }
   if (e.target.id === "pv-q") { state.pvQ = e.target.value; const pos = e.target.selectionStart; rerender(); const i = $("#pv-q"); i.focus(); i.setSelectionRange(pos, pos); }
 });
 document.addEventListener("keydown", e => {
