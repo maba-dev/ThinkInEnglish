@@ -239,25 +239,53 @@ const Mic = {
   }
 };
 
+/* ---------------- level ---------------- */
+const curLvl = () => (LEVELS.includes(settings.level) ? settings.level : null);
+const LVINFO = id => D.levels.find(l => l.id === id);
+const NEXT_LVL = l => LEVELS[LEVELS.indexOf(l) + 1] || null;
+function setLevel(l) {
+  if (!LEVELS.includes(l)) return;
+  settings.level = l; saveSettings();
+  Object.keys(pqs).forEach(k => delete pqs[k]);
+  Object.assign(state, { cf: null, pf: null, flash: null, dictI: 0, chunkCat: "all", chunkLimit: 60, pvCat: "all", pvPart: "", practice: {}, practiceSpec: {} });
+}
+
 /* ---------------- navigation ---------------- */
 const vocabAll = D.vocab.flatMap(t => t.words.map(w => ({ e: w[0], w: w[1], ipa: w[2], lvl: w[3], ex: w[4], theme: t.id })));
-const NAV = [
-  ["home", "Accueil", () => ""],
-  ["levels", "Niveaux A1–C1", () => ""],
-  ["audio", "Audio & écoute", () => ""],
-  ["podcasts", "Podcasts", () => `${countKnown("e:")}/${D.podcasts.length}`],
-  ["chat", "Parler avec l'IA", () => ""],
-  ["stories", "Mini-histoires", () => `${countKnown("s:")}/${D.stories.length}`],
-  ["vocab", "Vocabulaire", () => `${countKnown("v:")}/${vocabAll.length}`],
-  ["chunks", "Chunks", () => `${countKnown("c:")}/${D.chunks.length}`],
-  ["phrasal", "Phrasal verbs", () => `${countKnown("p:")}/${D.phrasal.length}`],
-  ["grammar", "Grammaire", () => `${countKnown("g:")}/${D.grammar.length}`],
-  ["phonetics", "Phonétique", () => ""],
-  ["tips", "Conseils", () => ""]
+const lvlVocab = (L = curLvl()) => vocabAll.filter(x => x.lvl === L);
+const genStories = () => store.get("gstories", []);
+function progress(L) {
+  const k = (arr, pre, key) => arr.filter(x => known.has(pre + key(x))).length;
+  const v = lvlVocab(L), g = D.grammar.filter(x => x.lvl === L), s = D.stories.filter(x => x.lvl === L), c = D.chunks.filter(x => x.lvl === L),
+    p = D.phrasal.filter(x => x.lvl === L), l = D.pron.filter(x => x.lvl === L), e = D.podcasts.filter(x => x.lvl === L), d = D.dictation[L].map((t, i) => i);
+  return {
+    vocab: [k(v, "v:", x => x.w), v.length], grammar: [k(g, "g:", x => x.id), g.length], stories: [k(s, "s:", x => x.id), s.length],
+    chunks: [k(c, "c:", x => x.n), c.length], phrasal: [k(p, "p:", x => x.pv), p.length], phonetics: [k(l, "l:", x => x.id), l.length],
+    audio: [k(d, "d:" + L + ":", x => x), d.length], podcasts: [k(e, "e:", x => x.id), e.length]
+  };
+}
+const overall = pr => { const r = Object.values(pr).map(([a, b]) => (b ? a / b : 0)); return Math.round(r.reduce((x, y) => x + y, 0) / r.length * 100); };
+const MODULES = [
+  ["vocab", "Vocabulaire", "🖼️", L => `${lvlVocab(L).length} mots en images, quiz « écoute → image » et « image → mot »`],
+  ["grammar", "Grammaire", "🧩", L => `${D.grammar.filter(x => x.lvl === L).length} points avec ligne du temps, piège du francophone et quiz`],
+  ["stories", "Mini-histoires", "📖", L => `${D.stories.filter(x => x.lvl === L).length} histoires illustrées + des histoires illimitées écrites par Claude`],
+  ["chunks", "Chunks", "💬", L => `${D.chunks.filter(x => x.lvl === L).length} blocs tout faits, classés par situation`],
+  ["phrasal", "Phrasal verbs", "🔗", L => `${D.phrasal.filter(x => x.lvl === L).length} phrasal verbs et la logique des particules`],
+  ["phonetics", "Phonétique", "👄", L => `${D.pron.filter(x => x.lvl === L).length} leçons de prononciation, alphabet phonétique, paires minimales`],
+  ["audio", "Écoute & dictée", "🎧", L => `${D.dictation[L].length} dictées, shadowing et écoute en images`],
+  ["podcasts", "Podcasts", "🎙️", L => `${D.podcasts.filter(x => x.lvl === L).length} épisodes de 15 minutes`],
+  ["chat", "Parler avec l'IA", "🗣️", () => "Conversation à ton niveau, corrigée, à l'écrit ou au micro"]
 ];
+const MODULE_IDS = MODULES.map(m => m[0]);
 let currentBase = "home";
 function renderNav() {
-  $("#nav").innerHTML = NAV.map(([id, label, c]) => `<a href="#${id}"${id === currentBase ? ' aria-current="page"' : ""}>${label}<small>${c()}</small></a>`).join("");
+  const L = curLvl(); const pr = L ? progress(L) : null;
+  $("#lvl-switch").innerHTML = LEVELS.map(l => `<button class="lvl-btn" style="--lc:var(--${l.toLowerCase()})" data-act="set-level" data-l="${l}" aria-pressed="${l === L}" title="Passer au niveau ${l}">${l}</button>`).join("");
+  const a = (id, label, small) => `<a href="#${id}"${id === currentBase ? ' aria-current="page"' : ""}>${label}<small>${small || ""}</small></a>`;
+  let html = a("home", L ? `Mon parcours ${L}` : "Choisir mon niveau", L ? overall(pr) + " %" : "");
+  if (L) html += `<span class="nav-sep">Modules ${L}</span>` + MODULES.map(([id, label]) => a(id, label, pr[id] ? `${pr[id][0]}/${pr[id][1]}` : "")).join("");
+  html += `<span class="nav-sep">Général</span>` + a("levels", "Test & niveaux") + a("tips", "Conseils");
+  $("#nav").innerHTML = html;
 }
 
 /* ---------------- generic MCQ ---------------- */
@@ -267,17 +295,17 @@ function mcq(key, items, onDone) {
   return `<div class="qblock" id="q-${key}">${items.map((it, i) => `
     <div class="q"><b>${i + 1}. ${esc(it.q)}</b>
       <div class="opts">${it.o.map((o, j) => `<button data-act="mcq" data-k="${key}" data-i="${i}" data-o="${j}">${esc(o)}</button>`).join("")}</div>
+      ${it.why ? `<p class="why small" id="why-${key}-${i}" hidden>${esc(it.why)}</p>` : ""}
     </div>`).join("")}<div class="pq-msg" id="qr-${key}" aria-live="polite"></div></div>`;
 }
 function mcqPick(b) {
   const { k, i, o } = b.dataset; const qz = quizzes[k]; if (!qz || qz.answers[i] != null) return;
   const it = qz.items[i]; const right = +o === it.a;
   qz.answers[i] = right;
-  const btns = $$(`button[data-k="${k}"][data-i="${i}"]`);
-  btns.forEach((x, j) => { x.disabled = true; if (j === it.a) x.classList.add("right"); });
+  $$(`button[data-k="${k}"][data-i="${i}"]`).forEach((x, j) => { x.disabled = true; if (j === it.a) x.classList.add("right"); });
   if (!right) b.classList.add("wrong");
-  const n = Object.keys(qz.answers).length;
-  if (n === qz.items.length) {
+  const w = document.getElementById(`why-${k}-${i}`); if (w) w.hidden = false;
+  if (Object.keys(qz.answers).length === qz.items.length) {
     const score = Object.values(qz.answers).filter(Boolean).length;
     const msg = qz.onDone ? qz.onDone(score, qz.items.length, qz.answers) : null;
     $("#qr-" + k).innerHTML = msg || `Score : ${score} / ${qz.items.length}${score === qz.items.length ? " — parfait !" : ""}`;
@@ -286,11 +314,12 @@ function mcqPick(b) {
 
 /* ---------------- picture quiz (hear → tap the picture) ---------------- */
 const pqs = {};
-function pqNew(key, pool, mode = "word") {
+function pqNew(key, pool, mode = "word", extra) {
   const prev = pqs[key];
   const target = pick(pool.filter(x => !prev || x !== prev.target)) || pick(pool);
-  const others = shuffle(pool.filter(x => x.e !== target.e)).slice(0, 3);
-  pqs[key] = { pool, mode, target, opts: shuffle([target, ...others]), done: false, score: prev ? prev.score : 0, total: prev ? prev.total : 0 };
+  let others = shuffle(pool.filter(x => x.e !== target.e)).slice(0, 3);
+  if (others.length < 3 && extra) others = others.concat(shuffle(extra.filter(x => x.e !== target.e && !others.some(o => o.e === x.e))).slice(0, 3 - others.length));
+  pqs[key] = { pool, extra, mode, target, opts: shuffle([target, ...others]), done: false, score: prev ? prev.score : 0, total: prev ? prev.total : 0 };
 }
 function pqHtml(key) {
   const s = pqs[key]; const txt = s.mode === "word" ? s.target.w : s.target.ex;
@@ -314,73 +343,122 @@ function pqPick(b) {
   Audio.speak(s.target.w);
 }
 
-/* ================= PAGES ================= */
-const state = { storyLvl: "all", grammarLvl: "all", chunkCat: "all", chunkLvl: "all", chunkLimit: 60, chunkQ: "", chunkMode: "list", pvCat: "all", pvPart: "", pvQ: "", pvMode: "list", vocabTab: "learn", audioTab: "picture", audioLvl: "A2", phonTab: "lessons", ipaSel: null, pairSet: "i", dictLvl: "A2", dictI: 0, flash: null };
+/* ---------------- unlimited practice written by Claude ---------------- */
+const PRACTICE_KIND = {
+  vocab: "Practise these words. Mix three kinds of items: a natural sentence with ___ where one word fits; a simple English definition and the matching word; the right collocation (e.g. make / do / take + noun).",
+  grammar: "Mix three kinds of items: a gap-fill sentence with ___; 'Which sentence is correct?'; 'Which sentence has a mistake?'. Include at least two items that target typical French-speaker mistakes.",
+  chunks: "Each item is a short situation or a two-line dialogue with ___ where one of these chunks fits naturally. The 3 options are chunks from the list.",
+  phrasal: "Each item is a natural sentence with ___ where one of these phrasal verbs fits, in the correct form. The 3 options are phrasal verbs in the correct form."
+};
+function practiceHtml(key, kind, topic, material) {
+  state.practiceSpec[key] = { kind, topic, material };
+  const p = state.practice[key];
+  let inner;
+  if (!SAMPLE) inner = SAMPLE_STATE === "pending" ? '<p class="muted small">Connexion à Claude…</p>' : '<p class="muted small">Ces exercices sont créés par Claude : ouvre le site depuis claude.ai, ou depuis sa version en ligne configurée avec une clé API.</p>';
+  else if (p === "loading") inner = `<div class="row"><span class="muted">Claude prépare 8 exercices à ton niveau… (10 à 30 secondes)</span><button class="btn ghost" data-act="practice-stop" data-k="${key}">Arrêter</button></div>`;
+  else if (p && p.items) inner = mcq(`pr-${key}-${p.v}`, p.items, (score, n) => `Score : ${score} / ${n}. ${score >= n - 1 ? "Excellent !" : "Lis les explications, puis génère une nouvelle série."}`) + `<button class="btn" data-act="practice-gen" data-k="${key}" style="align-self:flex-start">8 nouveaux exercices</button>`;
+  else inner = `<button class="btn primary" data-act="practice-gen" data-k="${key}" style="align-self:flex-start">Créer 8 exercices</button>`;
+  return `<section class="panel practice" id="pr-${key}"><div><span class="eyebrow">Entraînement illimité · ${curLvl() || ""}</span><h2>Exercices en plus</h2><p class="muted small">Claude crée de nouveaux exercices à ton niveau, différents à chaque fois, avec une explication en anglais simple pour chaque réponse.</p></div>${inner}</section>`;
+}
+function refreshPractice(key) {
+  const el = $("#pr-" + key), sp = state.practiceSpec[key];
+  if (el && sp) el.outerHTML = practiceHtml(key, sp.kind, sp.topic, sp.material);
+}
+function practiceGen(key) {
+  const sp = state.practiceSpec[key]; if (!SAMPLE || !sp || state.practice[key] === "loading") return;
+  const L = curLvl() || "B1";
+  const ctl = new AbortController(); state.practiceCtl[key] = ctl; state.practice[key] = "loading"; refreshPractice(key);
+  const prompt = `Create 8 multiple-choice English exercises for a French-speaking learner at CEFR level ${L}.
+Module: ${sp.kind}.${sp.topic ? ` Topic: ${sp.topic}.` : ""}
+${sp.material ? `Material to practise:\n${sp.material}\n` : ""}${PRACTICE_KIND[sp.kind]}
+Rules: language exactly at level ${L}; natural, varied contexts (daily life, travel, work, tech); exactly 3 options and exactly one correct answer; vary the position of the correct answer; never use French.
+Reply with only a JSON array of 8 objects like {"q": "question or sentence with ___", "o": ["option", "option", "option"], "a": 0, "why": "one short explanation in simple English, max 20 words"}.`;
+  SAMPLE.json(prompt, { signal: ctl.signal, cache: false })
+    .then(arr => {
+      const items = (Array.isArray(arr) ? arr : []).filter(x => x && typeof x.q === "string" && Array.isArray(x.o) && x.o.length === 3 && Number.isInteger(x.a) && x.a >= 0 && x.a < 3)
+        .map(x => ({ q: x.q, o: x.o.map(String), a: x.a, why: typeof x.why === "string" ? x.why : "" }));
+      state.practice[key] = items.length ? { items, v: Date.now() } : null;
+      if (!items.length) toast("Les exercices n'ont pas pu être créés. Réessaie.");
+      refreshPractice(key);
+    })
+    .catch(e => { state.practice[key] = null; if (e.code !== "cancelled") { markDenied(e.code); toast(sampleErr(e.code), 5000); } refreshPractice(key); });
+}
 
-function pageHome() {
-  const w = vocabAll[dayIndex % vocabAll.length];
-  const c = D.chunks[dayIndex % D.chunks.length];
-  const p = D.phrasal[dayIndex % D.phrasal.length];
-  if (!pqs.home) pqNew("home", vocabAll.filter(x => x.lvl !== "C1" && x.lvl !== "B2"));
-  const stat = (href, label, n, total) => `<a class="stat" href="#${href}"><span class="eyebrow">${label}</span><b>${n} <span class="muted small">/ ${total}</span></b><div class="progress"><i style="width:${total ? Math.round(n / total * 100) : 0}%"></i></div></a>`;
-  const lvlCol = { A1: "var(--a1)", A2: "var(--a2)", B1: "var(--b1)", B2: "var(--b2)", C1: "var(--c1)" };
-  return `
-  <section class="hero">
-    <div style="display:flex;flex-direction:column;gap:16px">
-      <span class="eyebrow">Ton site d'anglais personnel · A1 → C1</span>
-      <h1>See it. Hear it. <em>Say it.</em></h1>
-      <p class="lead">Ici, aucun mot n'est traduit en français. Chaque mot a une image, chaque phrase a un son, et tu t'entraînes à le dire. Ton cerveau apprend à relier directement l'image à l'anglais : c'est comme ça qu'on arrête de traduire.</p>
-      <div class="row"><a class="btn primary" href="#levels">Faire le test de niveau</a><a class="btn" href="#vocab">Commencer par les images</a></div>
-    </div>
-    <div class="thesis" aria-label="Le principe">
+/* ================= PAGES ================= */
+const state = { chunkCat: "all", chunkLimit: 60, chunkQ: "", chunkMode: "list", pvCat: "all", pvPart: "", pvQ: "", pvMode: "list", vocabTab: "learn", audioTab: "picture", phonTab: "lessons", ipaSel: null, pairSet: "i", dictI: 0, flash: null, practice: {}, practiceSpec: {}, practiceCtl: {}, storyTheme: "surprise" };
+const lvlCol = l => `var(--${l.toLowerCase()})`;
+
+function thesisCard() {
+  return `<div class="thesis" aria-label="Le principe">
       <span class="fr-word">pomme</span><span class="arrow">→</span><span class="pic">🍎</span><span class="arrow arrow2">→</span>
       <span class="en"><b>apple</b><span class="ipa">/ˈæp.əl/</span><span class="row">${sayBtn("apple")}${micBtn("apple")}</span></span>
       <p class="thesis-cap">On saute l'étape « pomme ». L'image remplace la traduction : 🍎 → apple, directement.</p>
+    </div>`;
+}
+function pagePicker() {
+  const res = store.get("placement", null);
+  return `<section class="hero">
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <span class="eyebrow">Think in English · A1 → C1</span>
+      <h1>Choisis ton <em>niveau</em>.</h1>
+      <p class="lead">Le site s'adapte à toi : vocabulaire, grammaire, histoires, chunks, phrasal verbs, phonétique, écoute, podcasts et conversation, tout est préparé pour ton niveau. Et rien n'est traduit : chaque mot a une image, chaque phrase a un son.</p>
+      <p>Tu ne sais pas ? <a href="#levels">Fais le test express (15 questions, 3 minutes)</a>.</p>
+    </div>
+    ${thesisCard()}
+  </section>
+  <div class="pick-grid">${D.levels.map(l => `<button class="pick" style="--lc:${lvlCol(l.id)}" data-act="set-level" data-l="${l.id}">
+      <span class="pick-band"><b>${l.id}</b><span>${l.fr}</span></span>
+      <span class="pick-body"><span>${esc(l.can[0])}</span><span>${esc(l.can[1])}</span><span class="muted small">${l.hours} · ${l.words}</span>${res === l.id ? '<span class="chip">Résultat de ton test</span>' : ""}</span>
+    </button>`).join("")}</div>
+  <p class="muted small">Tu pourras changer de niveau à tout moment avec les boutons A1 → C1 du menu.</p>`;
+}
+function pageHome() {
+  const L = curLvl(); if (!L) return pagePicker();
+  const info = LVINFO(L), pr = progress(L), pct = overall(pr), nxt = NEXT_LVL(L);
+  const lv = lvlVocab(L), cs = D.chunks.filter(x => x.lvl === L), ps = D.phrasal.filter(x => x.lvl === L);
+  const w = lv[dayIndex % lv.length], c = cs[dayIndex % cs.length], p = ps[dayIndex % ps.length];
+  const key = "home-" + L; if (!pqs[key]) pqNew(key, lv);
+  const g1 = D.grammar.find(x => x.lvl === L && !known.has("g:" + x.id)), s1 = D.stories.find(x => x.lvl === L && !known.has("s:" + x.id)), e1 = D.podcasts.find(x => x.lvl === L && !known.has("e:" + x.id));
+  const steps = [g1 && ["grammar-" + g1.id, "Grammaire", g1.title], s1 && ["stories-" + s1.id, "Histoire", s1.title], e1 && ["podcasts-" + e1.id, "Podcast", e1.title]].filter(Boolean);
+  return `
+  <section class="lvl-hero" style="--lc:${lvlCol(L)}">
+    <div class="lvl-hero-band"><b>${L}</b><span>${esc(info.name)}</span></div>
+    <div class="lvl-hero-body">
+      <span class="eyebrow">Mon parcours · niveau ${info.fr.toLowerCase()}</span>
+      <h1>Niveau ${L} : <em>${pct} %</em> du parcours</h1>
+      <div class="progress big"><i style="width:${pct}%"></i></div>
+      <p class="muted">À ce niveau, tu apprends à : ${info.can.slice(0, 2).map(x => esc(x.charAt(0).toLowerCase() + x.slice(1))).join(" ; ")}.</p>
+      ${steps.length ? `<div class="row"><span class="eyebrow">Continuer</span>${steps.map(([h, k, t]) => `<a class="btn${h.startsWith("grammar") ? " primary" : ""}" href="#${h}">${k} : ${esc(t)}</a>`).join("")}</div>` : ""}
     </div>
   </section>
 
   <section style="display:flex;flex-direction:column;gap:12px">
-    <h2>Aujourd'hui</h2>
-    <div class="today">
-      <div class="tile"><span class="eyebrow">Mot du jour</span><div class="tile-top"><span class="pic big">${w.e}</span>${lvlTag(w.lvl)}</div><h3>${esc(w.w)} <span class="ipa small">${esc(w.ipa)}</span></h3><p class="example muted">${esc(w.ex)}</p><div class="row">${sayBtn(w.w)}${sayBtn(w.ex, "Écouter la phrase")}${micBtn(w.w)}${starBtn("v:" + w.w)}</div></div>
-      <div class="tile"><span class="eyebrow">Chunk du jour</span><div class="tile-top"><span class="pic big">${D.chunkCats[c.c].emoji}</span>${lvlTag(c.lvl)}</div><h3>${esc(c.chunk)}</h3><p class="example muted">${esc(c.ex)}</p><div class="row">${sayBtn(c.chunk)}${sayBtn(c.ex, "Écouter l'exemple")}${starBtn("c:" + c.n)}</div></div>
-      <div class="tile"><span class="eyebrow">Phrasal verb du jour</span><div class="tile-top"><span class="pic big">${p.e}</span>${lvlTag(p.lvl)}</div><h3>${esc(p.pv)}</h3><p class="small">${esc(p.mean)}</p><p class="example muted">${esc(p.ex)}</p><div class="row">${sayBtn(p.pv)}${sayBtn(p.ex, "Écouter l'exemple")}${starBtn("p:" + p.pv)}</div></div>
-    </div>
+    <h2>Les modules du niveau ${L}</h2>
+    <div class="modgrid">${MODULES.map(([id, label, e, desc]) => { const v = pr[id]; const r = v && v[1] ? Math.round(v[0] / v[1] * 100) : null; return `<a class="tile mod" href="#${id}"><div class="tile-top"><span class="pic" style="font-size:1.9rem">${e}</span>${v ? `<span class="small muted">${v[0]} / ${v[1]}</span>` : ""}</div><h3>${label}</h3><p class="muted small">${desc(L)}</p>${r !== null ? `<div class="progress"><i style="width:${r}%"></i></div>` : ""}</a>`; }).join("")}</div>
   </section>
 
-  <section class="grid wide">
-    <a class="tile" href="#podcasts"><span class="eyebrow">100 épisodes · A1 → C1</span><h3>Podcasts de 15 minutes</h3><p class="muted small">Deux animateurs discutent d'un sujet à ton niveau, avec transcription, mots du jour et quiz.</p></a>
-    <a class="tile" href="#chat"><span class="eyebrow">Conversation</span><h3>Parler avec l'IA</h3><p class="muted small">Discute à l'écrit ou au micro : entretien d'embauche, café, small talk… Tes erreurs sont corrigées.</p></a>
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <h2>Aujourd'hui en ${L}</h2>
+    <div class="today">
+      <div class="tile"><span class="eyebrow">Mot du jour</span><div class="tile-top"><span class="pic big">${w.e}</span></div><h3>${esc(w.w)} <span class="ipa small">${esc(w.ipa)}</span></h3><p class="example muted">${esc(w.ex)}</p><div class="row">${sayBtn(w.w)}${sayBtn(w.ex, "Écouter la phrase")}${micBtn(w.w)}${starBtn("v:" + w.w)}</div></div>
+      <div class="tile"><span class="eyebrow">Chunk du jour</span><div class="tile-top"><span class="pic big">${D.chunkCats[c.c].emoji}</span></div><h3>${esc(c.chunk)}</h3><p class="example muted">${esc(c.ex)}</p><div class="row">${sayBtn(c.chunk)}${sayBtn(c.ex, "Écouter l'exemple")}${starBtn("c:" + c.n)}</div></div>
+      <div class="tile"><span class="eyebrow">Phrasal verb du jour</span><div class="tile-top"><span class="pic big">${p.e}</span></div><h3>${esc(p.pv)}</h3><p class="small">${esc(p.mean)}</p><p class="example muted">${esc(p.ex)}</p><div class="row">${sayBtn(p.pv)}${sayBtn(p.ex, "Écouter l'exemple")}${starBtn("p:" + p.pv)}</div></div>
+    </div>
   </section>
 
   <section class="panel">
-    <div><h2>Écoute, touche l'image</h2><p class="muted">Pas de français : tu entends un mot, tu trouves l'image. 2 minutes par jour suffisent pour créer le réflexe.</p></div>
-    ${pqHtml("home")}
+    <div><h2>Écoute, touche l'image</h2><p class="muted">Les mots du niveau ${L}, sans français : tu entends un mot, tu trouves l'image. 2 minutes par jour créent le réflexe.</p></div>
+    ${pqHtml(key)}
   </section>
 
-  <section style="display:flex;flex-direction:column;gap:12px">
-    <h2>Ta progression</h2>
-    <div class="stats">
-      ${stat("vocab", "Mots connus", countKnown("v:"), vocabAll.length)}
-      ${stat("chunks", "Chunks", countKnown("c:"), D.chunks.length)}
-      ${stat("phrasal", "Phrasal verbs", countKnown("p:"), D.phrasal.length)}
-      ${stat("grammar", "Grammaire validée", countKnown("g:"), D.grammar.length)}
-      ${stat("stories", "Histoires lues", countKnown("s:"), D.stories.length)}
-    </div>
-    <p class="muted small">Touche l'étoile sur un mot, un chunk ou un phrasal verb quand tu le connais. Ta progression est gardée dans ce navigateur.</p>
-  </section>
-
-  <section style="display:flex;flex-direction:column;gap:12px">
-    <h2>Les 5 niveaux</h2>
-    <div class="ladder">${D.levels.map((l, i) => `<a href="#levels" style="background:${lvlCol[l.id]};min-height:${60 + i * 26}px"><b>${l.id}</b><span>${l.fr}</span></a>`).join("")}</div>
-  </section>`;
+  ${nxt ? `<section class="panel"><h3>Et après ?</h3><p class="muted">Quand tu dépasses environ 70 % du parcours ${L} et que les histoires et podcasts te semblent faciles, passe au niveau ${nxt}. Garde le ${L} pour réviser.</p><button class="btn${pct >= 70 ? " primary" : ""}" data-act="set-level" data-l="${nxt}" style="align-self:flex-start">Passer au niveau ${nxt}</button></section>` : `<section class="panel"><h3>Niveau le plus haut du site</h3><p class="muted">Au C1, le plus efficace est l'exposition massive : podcasts, conversations avec l'IA sur des sujets complexes, articles et séries en VO.</p></section>`}`;
 }
 
 function pageLevels() {
-  const res = store.get("placement", null);
-  const count = (arr, l, f = x => x.lvl) => arr.filter(x => f(x) === l).length;
+  const res = store.get("placement", null), L = curLvl();
+  const count = (arr, l) => arr.filter(x => x.lvl === l).length;
   return `
-  <header class="page-head"><span class="eyebrow">Cadre européen (CECRL)</span><h1>Niveaux A1 → C1</h1><p>Ce que tu sais faire à chaque niveau, ce qu'il faut travailler, et le contenu du site qui correspond. Les heures sont les estimations de Cambridge (cumulées, avec un cours guidé).</p></header>
+  <header class="page-head"><span class="eyebrow">Cadre européen (CECRL)</span><h1>Test & niveaux</h1><p>Ce que tu sais faire à chaque niveau, ce qu'il faut travailler, et ce que le site te propose. Les heures sont les estimations de Cambridge (cumulées, avec un cours guidé).</p></header>
   <section class="panel">
     <div><h2>Test de niveau express</h2><p class="muted">15 questions, de A1 à C1. Réponds sans réfléchir trop longtemps.${res ? ` Dernier résultat : <b>${res}</b>.` : ""}</p></div>
     ${mcq("placement", D.placement, (score, n, answers) => {
@@ -388,58 +466,53 @@ function pageLevels() {
       let lvl = "A1"; for (const l of LEVELS) { if ((byLvl[l] || 0) >= 2) lvl = l; else break; }
       if (score <= 2) lvl = "A1";
       store.set("placement", lvl);
-      return `Score : ${score} / ${n}. Niveau estimé : <span class="lvl ${lvl}">${lvl}</span>. Commence par la grammaire et les histoires de ce niveau, puis monte. <a href="#grammar-lvl-${lvl}">Voir la grammaire ${lvl} →</a>`;
+      return `Score : ${score} / ${n}. Niveau estimé : <span class="lvl ${lvl}">${lvl}</span>. <button class="btn primary" data-act="set-level" data-l="${lvl}" data-go="home">Commencer le parcours ${lvl}</button>`;
     })}
   </section>
   <section style="display:flex;flex-direction:column;gap:14px">
     ${D.levels.map(l => `
     <article class="panel lvcard" id="lv-${l.id}">
-      <div class="band" style="background:var(--${l.id.toLowerCase()})"><b>${l.id}</b><span>${esc(l.name)}</span><span>${l.fr} · ${l.hours} · ${l.words}</span></div>
+      <div class="band" style="background:${lvlCol(l.id)}"><b>${l.id}</b><span>${esc(l.name)}</span><span>${l.fr} · ${l.hours} · ${l.words}</span></div>
       <div class="body">
         <div><span class="eyebrow">Tu sais…</span><ul>${l.can.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
         <div><span class="eyebrow">À travailler</span><ul>${l.focus.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
-        <div class="links">
-          <a class="chip" href="#grammar-lvl-${l.id}">Grammaire · ${count(D.grammar, l.id)}</a>
-          <a class="chip" href="#stories-lvl-${l.id}">Histoires · ${count(D.stories, l.id)}</a>
-          <a class="chip" href="#vocab">Mots · ${count(vocabAll, l.id)}</a>
-          <a class="chip" href="#chunks">Chunks · ${count(D.chunks, l.id)}</a>
-          <a class="chip" href="#phrasal">Phrasal verbs · ${count(D.phrasal, l.id)}</a>
-          <a class="chip" href="#phonetics">Phonétique · ${count(D.pron, l.id)}</a>
-        </div>
+        <p class="links small muted">${lvlVocab(l.id).length} mots · ${count(D.grammar, l.id)} points de grammaire · ${count(D.stories, l.id)} histoires · ${count(D.chunks, l.id)} chunks · ${count(D.phrasal, l.id)} phrasal verbs · ${count(D.pron, l.id)} leçons de phonétique · ${D.dictation[l.id].length} dictées · ${count(D.podcasts, l.id)} podcasts</p>
+        <div class="links">${L === l.id ? '<span class="chip" aria-pressed="true">Ton niveau actuel</span><a class="btn" href="#home">Ouvrir mon parcours</a>' : `<button class="btn primary" data-act="set-level" data-l="${l.id}" data-go="home">Choisir le niveau ${l.id}</button>`}</div>
       </div>
     </article>`).join("")}
   </section>`;
 }
 
+const pageHead = (eyebrow, title, text) => `<header class="page-head"><div class="row"><span class="lvl ${curLvl()}">${curLvl()}</span><span class="eyebrow">${eyebrow}</span></div><h1>${title}</h1>${text ? `<p>${text}</p>` : ""}</header>`;
+
 /* ---------- audio ---------- */
 function pageAudio() {
-  const tabs = [["picture", "Écoute & image"], ["dictation", "Dictée"], ["shadow", "Shadowing"], ["res", "Podcasts & ressources"]];
+  const L = curLvl();
+  const tabs = [["picture", "Écoute & image"], ["dictation", "Dictée"], ["shadow", "Shadowing"], ["res", "Ressources"]];
   let body = "";
   if (state.audioTab === "picture") {
-    const pool = vocabAll.filter(x => LEVELS.indexOf(x.lvl) <= LEVELS.indexOf(state.audioLvl));
-    const key = "audio-" + state.audioLvl;
-    if (!pqs[key]) pqNew(key, pool, "sentence");
-    body = `<div class="panel"><div><h3>Écoute la phrase, trouve l'image</h3><p class="muted">Tu entends une phrase complète. Trouve l'image du mot important. Tu comprends le sens global sans traduire, comme dans la vraie vie.</p></div>
-      <div class="chips">${LEVELS.slice(0, 4).map(l => `<button class="chip" data-act="audio-lvl" data-l="${l}" aria-pressed="${state.audioLvl === l}">jusqu'à ${l}</button>`).join("")}</div>
-      ${pqHtml(key)}</div>`;
+    const key = "audio-" + L;
+    if (!pqs[key]) pqNew(key, lvlVocab(L), "sentence");
+    body = `<div class="panel"><div><h3>Écoute la phrase, trouve l'image</h3><p class="muted">Tu entends une phrase complète du niveau ${L}. Trouve l'image du mot important. Tu comprends le sens global sans traduire, comme dans la vraie vie.</p></div>${pqHtml(key)}</div>`;
   } else if (state.audioTab === "dictation") {
-    const list = D.dictation[state.dictLvl]; const s = list[state.dictI % list.length];
-    body = `<div class="panel"><div><h3>Dictée</h3><p class="muted">Écoute (autant de fois que tu veux), écris ce que tu entends, puis vérifie. Excellent pour entendre les petits mots que les natifs avalent.</p></div>
-      <div class="chips">${LEVELS.map(l => `<button class="chip" data-act="dict-lvl" data-l="${l}" aria-pressed="${state.dictLvl === l}">${l}</button>`).join("")}</div>
-      <div class="row"><button class="btn primary" data-act="say" data-t="${esc(s)}">${IC.speaker} Écouter</button><button class="btn" data-act="say" data-slow="1" data-t="${esc(s)}">${IC.slow} Lentement</button><span class="muted small">Phrase ${state.dictI % list.length + 1} / ${list.length}</span></div>
+    const list = D.dictation[L]; const i = state.dictI % list.length; const s = list[i];
+    body = `<div class="panel"><div><h3>Dictée ${L}</h3><p class="muted">Écoute (autant de fois que tu veux), écris ce que tu entends, puis vérifie. Une dictée sans faute est cochée. Excellent pour entendre les petits mots que les natifs avalent.</p></div>
+      <div class="dots">${list.map((x, k) => `<button class="dot${known.has("d:" + L + ":" + k) ? " done" : ""}${k === i ? " cur" : ""}" data-act="dict-go" data-i="${k}" aria-label="Dictée ${k + 1}">${k + 1}</button>`).join("")}</div>
+      <div class="row"><button class="btn primary" data-act="say" data-t="${esc(s)}">${IC.speaker} Écouter</button><button class="btn" data-act="say" data-slow="1" data-t="${esc(s)}">${IC.slow} Lentement</button></div>
       <label for="dict-in" class="eyebrow">Ce que tu entends</label>
       <input class="dict-input" id="dict-in" autocomplete="off" spellcheck="false" placeholder="Tape la phrase…">
-      <div class="row"><button class="btn" data-act="dict-check">Vérifier</button><button class="btn ghost" data-act="dict-next">Phrase suivante →</button></div>
+      <div class="row"><button class="btn" data-act="dict-check">Vérifier</button><button class="btn ghost" data-act="dict-next">Dictée suivante →</button></div>
       <div id="dict-res" class="diff" aria-live="polite"></div></div>`;
   } else if (state.audioTab === "shadow") {
-    body = `<div class="panel"><div><h3>Shadowing</h3><p class="muted">Lance une ligne et parle EN MÊME TEMPS que la voix, comme son ombre. Commence en vitesse lente, puis normale. Tu copies le rythme et la mélodie, et tu n'as pas le temps de traduire.</p></div></div>
-      ${D.shadowing.map((sh, si) => `<div class="panel"><div class="toolbar"><div class="row">${lvlTag(sh.lvl)}<h3>${esc(sh.title)}</h3></div><div class="row"><button class="btn primary" data-act="shadow-all" data-s="${si}">${IC.speaker} Tout lire</button><button class="btn" data-act="shadow-all" data-s="${si}" data-slow="1">${IC.slow} Lent</button></div></div>
+    const list = D.shadowing.map((sh, si) => [sh, si]).filter(([sh]) => sh.lvl === L);
+    body = `<div class="panel"><div><h3>Shadowing ${L}</h3><p class="muted">Lance une ligne et parle EN MÊME TEMPS que la voix, comme son ombre. Commence en vitesse lente, puis normale. Tu copies le rythme et la mélodie, et tu n'as pas le temps de traduire.</p></div></div>
+      ${list.map(([sh, si]) => `<div class="panel"><div class="toolbar"><h3>${esc(sh.title)}</h3><div class="row"><button class="btn primary" data-act="shadow-all" data-s="${si}">${IC.speaker} Tout lire</button><button class="btn" data-act="shadow-all" data-s="${si}" data-slow="1">${IC.slow} Lent</button></div></div>
         <div class="lines">${sh.lines.map((ln, li) => `<div class="line" id="sh-${si}-${li}">${sayBtn(ln)}${slowBtn(ln)}<span>${esc(ln)}</span></div>`).join("")}</div></div>`).join("")}`;
   } else {
     body = `<div class="reslist">${D.resources.map(r => `<a class="tile" href="${r.url}" target="_blank" rel="noopener"><div class="tile-top"><span class="pic big">${r.e}</span><span class="chip">${r.lvl}</span></div><h3>${esc(r.name)}</h3><p class="muted small">${esc(r.what)}</p></a>`).join("")}</div>
       <p class="muted small">Ces sites s'ouvrent dans un nouvel onglet. Astuce : écoute toujours avec les sous-titres ou la transcription en anglais, jamais en français.</p>`;
   }
-  return `<header class="page-head"><span class="eyebrow">Compréhension orale</span><h1>Audio & écoute</h1><p>Tout le texte du site peut être écouté : touche l'icône haut-parleur. Change la voix (UK, US) et la vitesse dans les réglages audio.</p></header>
+  return `${pageHead("Compréhension orale", "Écoute & dictée", "Tout le texte du site peut être écouté : touche l'icône haut-parleur. Change la voix (UK, US) et la vitesse dans les réglages audio. Pour l'écoute longue, va dans Podcasts.")}
   <div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${state.audioTab === id}" data-act="audio-tab" data-t="${id}">${l}</button>`).join("")}</div>${body}`;
 }
 function lcsDiff(target, typed) {
@@ -452,22 +525,61 @@ function lcsDiff(target, typed) {
 }
 
 /* ---------- stories ---------- */
-function pageStories(sub) {
-  if (sub && sub.startsWith("lvl-")) state.storyLvl = sub.slice(4);
-  else if (sub) { const s = D.stories.find(x => x.id === sub); if (s) return storyView(s); }
-  const list = D.stories.filter(s => state.storyLvl === "all" || s.lvl === state.storyLvl);
-  return `<header class="page-head"><span class="eyebrow">Lecture</span><h1>Mini-histoires</h1><p>Des histoires courtes en images, du A1 au C1, avec l'audio. Les mots difficiles sont expliqués par une image et de l'anglais simple, jamais par une traduction. Relis la même histoire plusieurs jours de suite.</p></header>
-  ${levelChips("story-lvl", state.storyLvl)}
-  <div class="grid wide">${list.map(s => `<a class="tile" href="#stories-${s.id}"><div class="tile-top"><span class="pic story-cover">${s.e}</span>${lvlTag(s.lvl)}</div><h3>${esc(s.title)}</h3><p class="pic" style="font-size:1.4rem;letter-spacing:4px">${s.scenes.map(x => x.e.split(/(?=\p{Extended_Pictographic})/u)[0]).join("")}</p><p class="muted small">${s.scenes.length} scènes · ${s.questions.length} questions${known.has("s:" + s.id) ? " · lue ✓" : ""}</p></a>`).join("") || '<p class="empty">Aucune histoire à ce niveau pour l\'instant.</p>'}</div>`;
+const STORY_GUIDE = {
+  A1: "Each paragraph has 2 to 4 very short sentences (30 to 40 words). Present simple and present continuous only. Only the 500 most common words.",
+  A2: "Each paragraph has 40 to 60 words. A story in the past simple with common words and short sentences.",
+  B1: "Each paragraph has 60 to 80 words. Natural narrative tenses (past simple, past continuous, past perfect), some common phrasal verbs.",
+  B2: "Each paragraph has 80 to 100 words. Rich vocabulary, a few idioms, varied structures and some dialogue.",
+  C1: "Each paragraph has 90 to 120 words. Sophisticated, idiomatic and nuanced English, complex structures, subtle humour or emotion."
+};
+const STORY_THEMES = [["surprise", "Surprise-moi"], ["travel", "Voyage"], ["work", "Travail & tech"], ["friendship", "Amitié & famille"], ["mystery", "Mystère"], ["funny", "Drôle"], ["abroad", "Vivre à l'étranger"]];
+let storyGen = null;
+function storyGenerate() {
+  const L = curLvl(); if (!SAMPLE || storyGen || !L) return;
+  const theme = STORY_THEMES.find(t => t[0] === state.storyTheme) || STORY_THEMES[0];
+  const ctl = new AbortController(); storyGen = { ctl }; rerender();
+  const prompt = `Write an original short illustrated story for a French-speaking adult learner of English, CEFR level ${L}.
+${STORY_GUIDE[L]}
+Theme: ${theme[0] === "surprise" ? "any engaging everyday theme of your choice" : theme[0]}. Give it a small twist or a human moment. Never use French.
+Reply with only a JSON object:
+{"title": "short title", "e": "one emoji for the cover",
+ "scenes": [6 objects {"e": "2 or 3 emojis that illustrate the scene", "t": "the paragraph"}],
+ "gloss": {"word or expression exactly as written in the text": ["one emoji", "simple English definition, max 12 words"]},
+ "questions": [3 objects {"q": "comprehension question", "o": ["option", "option", "option"], "a": 0}]}
+The gloss has 4 to 6 entries: useful words for level ${L} that appear in the text.`;
+  SAMPLE.json(prompt, { signal: ctl.signal, cache: false })
+    .then(r => {
+      storyGen = null;
+      const scenes = (r && Array.isArray(r.scenes) ? r.scenes : []).filter(s => s && typeof s.t === "string").map(s => ({ e: String(s.e || "📖"), t: s.t }));
+      const text = scenes.map(s => s.t).join(" ");
+      const gloss = {}; Object.entries((r && r.gloss) || {}).forEach(([k, v]) => { if (Array.isArray(v) && new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)) gloss[k] = [String(v[0] || "💬"), String(v[1] || "")]; });
+      const questions = (r && Array.isArray(r.questions) ? r.questions : []).filter(x => x && Array.isArray(x.o) && x.o.length === 3 && Number.isInteger(x.a) && x.a >= 0 && x.a < 3).map(x => ({ q: String(x.q), o: x.o.map(String), a: x.a }));
+      if (scenes.length < 3) { toast("L'histoire n'a pas pu être écrite correctement. Réessaie."); rerender(); return; }
+      const s = { id: "g" + Date.now().toString(36), lvl: L, title: String(r.title || "A new story"), e: String(r.e || "📖"), scenes, gloss, questions, gen: true };
+      const list = genStories(); list.unshift(s); store.set("gstories", list.slice(0, 60));
+      location.hash = "#stories-" + s.id;
+    })
+    .catch(e => { storyGen = null; if (e.code !== "cancelled") { markDenied(e.code); toast(sampleErr(e.code), 5000); } rerender(); });
 }
-function levelChips(act, cur) {
-  return `<div class="chips"><button class="chip" data-act="${act}" data-l="all" aria-pressed="${cur === "all"}">Tous</button>${LEVELS.map(l => `<button class="chip" data-act="${act}" data-l="${l}" aria-pressed="${cur === l}">${l}</button>`).join("")}</div>`;
+function pageStories(sub) {
+  const L = curLvl();
+  if (sub) { const s = D.stories.find(x => x.id === sub) || genStories().find(x => x.id === sub); if (s) return storyView(s); }
+  const list = D.stories.filter(s => s.lvl === L), gen = genStories().filter(s => s.lvl === L);
+  const tile = s => `<a class="tile" href="#stories-${s.id}"><div class="tile-top"><span class="pic story-cover">${esc(s.e)}</span>${s.gen ? '<span class="chip">Écrite par Claude</span>' : ""}</div><h3>${esc(s.title)}</h3><p class="pic" style="font-size:1.4rem;letter-spacing:4px">${s.scenes.map(x => [...x.e][0] || "").join("")}</p><p class="muted small">${s.scenes.length} scènes · ${s.questions.length} questions${known.has("s:" + s.id) ? " · lue ✓" : ""}</p></a>`;
+  let genPanel;
+  if (!SAMPLE) genPanel = SAMPLE_STATE === "pending" ? '<p class="muted small">Connexion à Claude…</p>' : '<p class="muted small">Pour créer des histoires illimitées, ouvre le site depuis claude.ai, ou depuis sa version en ligne configurée avec une clé API.</p>';
+  else if (storyGen) genPanel = `<div class="row"><span class="muted">Claude écrit ton histoire de niveau ${L}… (20 à 60 secondes)</span><button class="btn ghost" data-act="story-stop">Arrêter</button></div>`;
+  else genPanel = `<div class="chips">${STORY_THEMES.map(([id, l]) => `<button class="chip" data-act="story-theme" data-t="${id}" aria-pressed="${state.storyTheme === id}">${l}</button>`).join("")}</div><button class="btn primary" data-act="story-gen" style="align-self:flex-start">Créer une nouvelle histoire ${L}</button>`;
+  return `${pageHead("Lecture", "Mini-histoires", `Des histoires courtes en images, écrites pour le niveau ${L}, avec l'audio. Les mots difficiles sont expliqués par une image et de l'anglais simple, jamais par une traduction. Relis la même histoire plusieurs jours de suite.`)}
+  <div class="grid wide">${list.map(tile).join("")}</div>
+  <section class="panel"><div><span class="eyebrow">Lecture illimitée</span><h2>Une nouvelle histoire à ton niveau</h2><p class="muted small">Claude écrit une histoire inédite de niveau ${L}, avec images, mots expliqués et questions. Elle reste enregistrée dans ce navigateur.</p></div>${genPanel}</section>
+  ${gen.length ? `<h2>Tes histoires créées (${gen.length})</h2><div class="grid wide">${gen.map(tile).join("")}</div>` : ""}`;
 }
 function glossify(text, gloss) {
   let html = esc(text);
   const keys = Object.keys(gloss).sort((a, b) => b.length - a.length);
   for (const k of keys) {
-    const re = new RegExp(`\\b(${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\b`, "i");
+    const re = new RegExp(`\\b(${esc(k).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\b`, "i");
     html = html.replace(re, `<button class="gl" data-act="gloss" data-k="${esc(k)}">$1</button>`);
   }
   return html;
@@ -475,35 +587,45 @@ function glossify(text, gloss) {
 let currentStory = null;
 function storyView(s) {
   currentStory = s;
-  return `<a class="btn ghost back" href="#stories">← Toutes les histoires</a>
-  <header class="page-head"><div class="row">${lvlTag(s.lvl)}<span class="pic" style="font-size:2rem">${s.e}</span></div><h1>${esc(s.title)}</h1><p>Écoute une première fois sans lire, en regardant seulement les images. Puis écoute en lisant. Les mots surlignés : touche-les pour voir leur image.</p>
+  return `<a class="btn ghost back" href="#stories">← Histoires ${esc(s.lvl)}</a>
+  <header class="page-head"><div class="row">${lvlTag(s.lvl)}<span class="pic" style="font-size:2rem">${esc(s.e)}</span>${s.gen ? '<span class="chip">Écrite par Claude</span>' : ""}</div><h1>${esc(s.title)}</h1><p>Écoute une première fois sans lire, en regardant seulement les images. Puis écoute en lisant. Les mots surlignés : touche-les pour voir leur image.</p>
   <div class="row"><button class="btn primary" data-act="story-play">${IC.speaker} Écouter toute l'histoire</button><button class="btn" data-act="story-play" data-slow="1">${IC.slow} Version lente</button></div></header>
-  <div class="reader">${s.scenes.map((sc, i) => `<div class="scene" id="sc${i}"><div class="strip pic" aria-hidden="true">${sc.e}</div><div><p class="txt">${glossify(sc.t, s.gloss)}</p><div class="tools">${sayBtn(sc.t, "Écouter ce passage")}${slowBtn(sc.t)}</div></div></div>`).join("")}</div>
-  <section class="panel" style="max-width:760px"><h2>Did you understand?</h2>${mcq("story-" + s.id, s.questions, (score, n) => {
+  <div class="reader">${s.scenes.map((sc, i) => `<div class="scene" id="sc${i}"><div class="strip pic" aria-hidden="true">${esc(sc.e)}</div><div><p class="txt">${glossify(sc.t, s.gloss)}</p><div class="tools">${sayBtn(sc.t, "Écouter ce passage")}${slowBtn(sc.t)}</div></div></div>`).join("")}</div>
+  ${s.questions.length ? `<section class="panel" style="max-width:760px"><h2>Did you understand?</h2>${mcq("story-" + s.id, s.questions, (score, n) => {
     if (score >= n - 1 && !known.has("s:" + s.id)) toggleKnown("s:" + s.id);
     return `Score : ${score} / ${n}. ${score >= n - 1 ? "Histoire marquée comme lue ✓" : "Relis l'histoire et réessaie demain."}`;
-  })}</section>
-  <section class="panel" style="max-width:760px"><h3>Mots de l'histoire</h3><div class="wordrow">${Object.entries(s.gloss).map(([k, [e, def]]) => `<span class="wordpill" title="${esc(def)}"><span class="pic">${e}</span>${esc(k)}${sayBtn(k)}</span>`).join("")}</div></section>`;
+  })}</section>` : ""}
+  ${Object.keys(s.gloss).length ? `<section class="panel" style="max-width:760px"><h3>Mots de l'histoire</h3><div class="wordrow">${Object.entries(s.gloss).map(([k, [e, def]]) => `<span class="wordpill" title="${esc(def)}"><span class="pic">${esc(e)}</span>${esc(k)}${sayBtn(k)}</span>`).join("")}</div></section>` : ""}
+  ${s.gen ? `<button class="btn ghost" data-act="story-del" data-id="${esc(s.id)}" style="align-self:flex-start">Supprimer cette histoire</button>` : ""}`;
 }
 
 /* ---------- vocabulary ---------- */
 function pageVocab(sub) {
+  const L = curLvl();
   const theme = D.vocab.find(t => t.id === sub);
   if (theme) return vocabTheme(theme);
-  return `<header class="page-head"><span class="eyebrow">Dictionnaire en images</span><h1>Vocabulaire</h1><p>${vocabAll.length} mots en ${D.vocab.length} thèmes. Une image, un son, une phrase : jamais de traduction. Chaque thème a deux quiz pour ancrer le lien image → mot.</p></header>
-  <div class="grid">${D.vocab.map(t => { const n = t.words.filter(w => known.has("v:" + w[1])).length; return `<a class="tile" href="#vocab-${t.id}"><div class="tile-top"><span class="pic big">${t.e}</span><span class="muted small">${n}/${t.words.length}</span></div><h3>${esc(t.name)}</h3><p class="pic" style="font-size:1.3rem;letter-spacing:3px">${t.words.slice(0, 6).map(w => w[0]).join("")}</p><div class="progress"><i style="width:${Math.round(n / t.words.length * 100)}%"></i></div></a>`; }).join("")}</div>`;
+  const lv = lvlVocab(L);
+  const themes = D.vocab.map(t => [t, lv.filter(x => x.theme === t.id)]).filter(([, ws]) => ws.length);
+  const key = "vall-" + L; if (!pqs[key]) pqNew(key, lv);
+  const unknown = lv.filter(x => !known.has("v:" + x.w));
+  return `${pageHead("Dictionnaire en images", "Vocabulaire", `${lv.length} mots du niveau ${L} en ${themes.length} thèmes. Une image, un son, une phrase : jamais de traduction. Chaque thème a deux quiz pour ancrer le lien image → mot.`)}
+  <div class="grid">${themes.map(([t, ws]) => { const n = ws.filter(x => known.has("v:" + x.w)).length; return `<a class="tile" href="#vocab-${t.id}"><div class="tile-top"><span class="pic big">${t.e}</span><span class="muted small">${n}/${ws.length}</span></div><h3>${esc(t.name)}</h3><p class="pic" style="font-size:1.3rem;letter-spacing:3px">${ws.slice(0, 6).map(w => w.e).join("")}</p><div class="progress"><i style="width:${Math.round(n / ws.length * 100)}%"></i></div></a>`; }).join("")}</div>
+  <section class="panel"><div><h2>Quiz du niveau ${L}</h2><p class="muted">Les ${lv.length} mots mélangés : écoute, touche l'image.</p></div>${pqHtml(key)}</section>
+  ${practiceHtml("vocab-" + L, "vocab", "", shuffle(unknown.length >= 12 ? unknown : lv).slice(0, 16).map(x => `${x.w} — ${x.ex}`).join("\n"))}`;
 }
 function vocabTheme(t) {
-  const words = vocabAll.filter(x => x.theme === t.id);
+  const L = curLvl();
+  let words = vocabAll.filter(x => x.theme === t.id && x.lvl === L);
+  if (!words.length) words = vocabAll.filter(x => x.theme === t.id);
   const tabs = [["learn", "Découvrir"], ["listen", "Quiz : écoute → image"], ["write", "Quiz : image → mot"]];
   let body = "";
   if (state.vocabTab === "learn") {
     body = `<div class="grid tight">${words.map(x => `<div class="tile wcard${known.has("v:" + x.w) ? " known" : ""}">${lvlTag(x.lvl)}<span class="pic">${x.e}</span><span class="word">${esc(x.w)}</span><span class="ipa small">${esc(x.ipa)}</span><span class="ex">${esc(x.ex)}</span><div class="acts">${sayBtn(x.w)}${sayBtn(x.ex, "Écouter la phrase")}${micBtn(x.w)}${starBtn("v:" + x.w)}</div></div>`).join("")}</div>`;
   } else if (state.vocabTab === "listen") {
-    const key = "v-" + t.id; if (!pqs[key]) pqNew(key, words);
+    const key = "v-" + t.id + "-" + L; if (!pqs[key]) pqNew(key, words, "word", lvlVocab(L));
     body = `<div class="panel">${pqHtml(key)}</div>`;
   } else {
-    if (!state.flash || state.flash.theme !== t.id) state.flash = { theme: t.id, order: shuffle(words), i: 0, ok: 0 };
+    if (!state.flash || state.flash.theme !== t.id + L) state.flash = { theme: t.id + L, order: shuffle(words), i: 0, ok: 0 };
     const f = state.flash; const x = f.order[f.i % f.order.length];
     body = `<div class="panel flash"><div class="flash-card"><span class="pic" style="font-size:5rem">${x.e}</span><p class="muted">Quel est ce mot ? Écris-le${document.body.classList.contains("has-mic") ? " ou dis-le" : ""}.</p>
       <input class="dict-input" id="vw-in" style="max-width:320px;text-align:center" autocomplete="off" spellcheck="false" placeholder="…">
@@ -511,22 +633,24 @@ function vocabTheme(t) {
       <div id="vw-res" class="pq-msg" aria-live="polite"></div>
       <span class="score muted">${f.i % f.order.length + 1} / ${f.order.length} · bonnes réponses : ${f.ok}</span></div></div>`;
   }
-  return `<a class="btn ghost back" href="#vocab">← Tous les thèmes</a>
-  <header class="page-head"><div class="row"><span class="pic" style="font-size:2.2rem">${t.e}</span><h1>${esc(t.name)}</h1></div><p>Touche le haut-parleur pour entendre le mot, puis la phrase. Le micro vérifie ta prononciation. L'étoile = « je connais ».</p></header>
-  <div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${state.vocabTab === id}" data-act="vocab-tab" data-t="${id}">${l}</button>`).join("")}</div>${body}`;
+  return `<a class="btn ghost back" href="#vocab">← Vocabulaire ${L}</a>
+  <header class="page-head"><div class="row"><span class="pic" style="font-size:2.2rem">${t.e}</span><h1>${esc(t.name)}</h1><span class="lvl ${L}">${L}</span></div><p>${words.length} mots. Touche le haut-parleur pour entendre le mot, puis la phrase. Le micro vérifie ta prononciation. L'étoile = « je connais ».</p></header>
+  <div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${state.vocabTab === id}" data-act="vocab-tab" data-t="${id}">${l}</button>`).join("")}</div>${body}
+  ${practiceHtml("vt-" + t.id + "-" + L, "vocab", t.name, words.map(x => `${x.w} — ${x.ex}`).join("\n"))}`;
 }
 
 /* ---------- chunks ---------- */
 function pageChunks() {
+  const L = curLvl();
   const q = norm(state.chunkQ);
-  const inLvl = c => state.chunkLvl === "all" || c.lvl === state.chunkLvl;
+  const inLvl = c => c.lvl === L;
   const list = D.chunks.filter(c => inLvl(c) && (state.chunkCat === "all" || c.c === +state.chunkCat) && (!q || norm(c.chunk + " " + c.ex + " " + c.fr).includes(q)));
   const catCount = i => D.chunks.filter(c => inLvl(c) && c.c === i).length;
   const frHtml = c => settings.immersion ? `<button class="fr-peek" data-act="peek" data-fr="${esc(c.fr)}">voir en français</button>` : `<span class="fr">≈ ${esc(c.fr)}</span>`;
   let body;
   if (state.chunkMode === "flash") {
-    const pool = list.length ? list : D.chunks;
-    const cfKey = [state.chunkLvl, state.chunkCat, q].join("|");
+    const pool = list.length ? list : D.chunks.filter(inLvl);
+    const cfKey = [L, state.chunkCat, q].join("|");
     if (!state.cf || state.cf.key !== cfKey) state.cf = { key: cfKey, c: pick(pool), shown: false };
     const c = state.cf.c; const core = c.chunk.replace(/[.,!?…]+$/, "");
     const re = new RegExp(core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
@@ -535,14 +659,15 @@ function pageChunks() {
       ${state.cf.shown ? `<p class="a">${esc(c.chunk)}</p><p class="example muted">${esc(c.ex)}</p><div class="row" style="justify-content:center">${sayBtn(c.ex)}${starBtn("c:" + c.n)}</div>` : `<p class="muted small">Dis le chunk à voix haute en moins de 2 secondes, puis vérifie.</p>`}
       <div class="row" style="justify-content:center">${state.cf.shown ? "" : `<button class="btn primary" data-act="cf-show">Voir le chunk</button>`}<button class="btn" data-act="cf-next">Suivant →</button></div></div></div>`;
   } else {
-    body = `<p class="muted small">${list.length} chunks${list.length > state.chunkLimit ? ` · ${state.chunkLimit} affichés` : ""}</p><div class="grid wide">${list.slice(0, state.chunkLimit).map(c => `<div class="tile ccard${known.has("c:" + c.n) ? " known" : ""}"><div class="tile-top"><span class="pic" style="font-size:1.8rem">${D.chunkCats[c.c].emoji}</span>${lvlTag(c.lvl)}</div><span class="chunk">${esc(c.chunk)}</span><span class="example muted">${esc(c.ex)}</span><div class="acts">${sayBtn(c.chunk)}${sayBtn(c.ex, "Écouter l'exemple")}${starBtn("c:" + c.n)}${frHtml(c)}</div></div>`).join("") || '<p class="empty">Aucun chunk ne correspond.</p>'}</div>${list.length > state.chunkLimit ? `<button class="btn" data-act="chunk-more" style="align-self:center">Voir 60 de plus (${list.length - state.chunkLimit} restants)</button>` : ""}`;
+    body = `<p class="muted small">${list.length} chunks${list.length > state.chunkLimit ? ` · ${state.chunkLimit} affichés` : ""}</p><div class="grid wide">${list.slice(0, state.chunkLimit).map(c => `<div class="tile ccard${known.has("c:" + c.n) ? " known" : ""}"><div class="tile-top"><span class="pic" style="font-size:1.8rem">${D.chunkCats[c.c].emoji}</span></div><span class="chunk">${esc(c.chunk)}</span><span class="example muted">${esc(c.ex)}</span><div class="acts">${sayBtn(c.chunk)}${sayBtn(c.ex, "Écouter l'exemple")}${starBtn("c:" + c.n)}${frHtml(c)}</div></div>`).join("") || '<p class="empty">Aucun chunk ne correspond.</p>'}</div>${list.length > state.chunkLimit ? `<button class="btn" data-act="chunk-more" style="align-self:center">Voir 60 de plus (${list.length - state.chunkLimit} restants)</button>` : ""}`;
   }
-  return `<header class="page-head"><span class="eyebrow">Blocs tout faits</span><h1>Chunks</h1><p>Les natifs ne construisent pas leurs phrases mot à mot : ils sortent des blocs tout prêts. Voici ${D.chunks.length} blocs classés de A1 à C1 et par situation. Apprends-les comme un seul mot, à voix haute, d'un seul souffle : commence par ton niveau et celui du dessous. Plus tu as de blocs, moins tu traduis.</p></header>
+  const pool = (list.length >= 8 ? list : D.chunks.filter(inLvl)).filter(c => !known.has("c:" + c.n));
+  return `${pageHead("Blocs tout faits", "Chunks", `${D.chunks.filter(inLvl).length} blocs du niveau ${L}, classés par situation. Les natifs ne construisent pas leurs phrases mot à mot : ils sortent des blocs tout prêts. Apprends-les comme un seul mot, à voix haute, d'un seul souffle.`)}
   <div class="toolbar"><input class="search" id="chunk-q" type="search" placeholder="Chercher un chunk…" value="${esc(state.chunkQ)}" aria-label="Chercher un chunk">
     <div class="chips"><button class="chip" data-act="chunk-mode" data-m="list" aria-pressed="${state.chunkMode === "list"}">Liste</button><button class="chip" data-act="chunk-mode" data-m="flash" aria-pressed="${state.chunkMode === "flash"}">Révision (cartes)</button></div></div>
-  <div class="chips" aria-label="Niveau"><button class="chip" data-act="chunk-lvl" data-l="all" aria-pressed="${state.chunkLvl === "all"}">Tous les niveaux · ${D.chunks.length}</button>${LEVELS.map(l => `<button class="chip" data-act="chunk-lvl" data-l="${l}" aria-pressed="${state.chunkLvl === l}">${l} · ${D.chunks.filter(c => c.lvl === l).length}</button>`).join("")}</div>
   <div class="chips" aria-label="Situation"><button class="chip" data-act="chunk-cat" data-c="all" aria-pressed="${state.chunkCat === "all"}">Toutes les situations</button>${D.chunkCats.map((c, i) => [c, i, catCount(i)]).filter(x => x[2] > 0).map(([c, i, k]) => `<button class="chip" data-act="chunk-cat" data-c="${i}" aria-pressed="${state.chunkCat === String(i)}"><span class="pic">${c.emoji}</span> ${esc(c.name)} <span class="muted">${k}</span></button>`).join("")}</div>
-  <div id="chunk-body" style="display:flex;flex-direction:column;gap:12px">${body}</div>`;
+  <div id="chunk-body" style="display:flex;flex-direction:column;gap:12px">${body}</div>
+  ${practiceHtml("chunks-" + L + "-" + state.chunkCat, "chunks", state.chunkCat === "all" ? "" : D.chunkCats[+state.chunkCat].name, shuffle(pool.length >= 8 ? pool : D.chunks.filter(inLvl)).slice(0, 24).map(c => c.chunk).join("\n"))}`;
 }
 
 /* ---------- phrasal verbs ---------- */
@@ -567,29 +692,34 @@ function diagram(p) {
   return `<svg viewBox="0 0 140 100" aria-hidden="true">${d}</svg>`;
 }
 function pagePhrasal() {
+  const L = curLvl();
   const q = norm(state.pvQ);
-  const list = D.phrasal.filter(p => (state.pvCat === "all" || p.c === +state.pvCat) && (!state.pvPart || p.part === state.pvPart || (state.pvPart === "in" && p.part === "into")) && (!q || norm(p.pv + " " + p.mean + " " + p.ex).includes(q)));
+  const atL = D.phrasal.filter(p => p.lvl === L);
+  const parts = PARTICLES.filter(([p]) => atL.some(x => x.part === p || (p === "in" && x.part === "into")));
+  const list = atL.filter(p => (state.pvCat === "all" || p.c === +state.pvCat) && (!state.pvPart || p.part === state.pvPart || (state.pvPart === "in" && p.part === "into")) && (!q || norm(p.pv + " " + p.mean + " " + p.ex).includes(q)));
   let body;
   if (state.pvMode === "flash") {
-    const pool = list.length ? list : D.phrasal;
-    const key = [state.pvCat, state.pvPart, q].join("|");
+    const pool = list.length ? list : atL;
+    const key = [L, state.pvCat, state.pvPart, q].join("|");
     if (!state.pf || state.pf.key !== key) state.pf = { key, p: pick(pool), shown: false };
     const p = state.pf.p;
     body = `<div class="flash"><div class="flash-card"><span class="pic" style="font-size:4rem">${p.e}</span><p class="q">${esc(p.mean)}</p>
       ${state.pf.shown ? `<p class="a">${esc(p.pv)}</p><p class="example muted">${esc(p.ex)}</p><div class="row" style="justify-content:center">${sayBtn(p.ex)}${starBtn("p:" + p.pv)}</div>` : '<p class="muted small">Quel phrasal verb ? Dis-le, puis vérifie.</p>'}
       <div class="row" style="justify-content:center">${state.pf.shown ? "" : '<button class="btn primary" data-act="pf-show">Voir la réponse</button>'}<button class="btn" data-act="pf-next">Suivant →</button></div></div></div>`;
   } else {
-    body = `<p class="muted small">${list.length} phrasal verbs</p><div class="grid wide">${list.map(p => `<div class="tile ccard${known.has("p:" + p.pv) ? " known" : ""}"><div class="tile-top"><span class="pic" style="font-size:2.2rem">${p.e}</span><div class="row">${lvlTag(p.lvl)}<span class="type">${esc(p.type)}</span></div></div><span class="chunk">${esc(p.pv)}</span><span class="small">${esc(p.mean)}</span><span class="example muted">${esc(p.ex)}</span><div class="acts">${sayBtn(p.pv)}${sayBtn(p.ex, "Écouter l'exemple")}${starBtn("p:" + p.pv)}</div></div>`).join("") || '<p class="empty">Aucun phrasal verb ne correspond.</p>'}</div>`;
+    body = `<p class="muted small">${list.length} phrasal verbs</p><div class="grid wide">${list.map(p => `<div class="tile ccard${known.has("p:" + p.pv) ? " known" : ""}"><div class="tile-top"><span class="pic" style="font-size:2.2rem">${p.e}</span><span class="type">${esc(p.type)}</span></div><span class="chunk">${esc(p.pv)}</span><span class="small">${esc(p.mean)}</span><span class="example muted">${esc(p.ex)}</span><div class="acts">${sayBtn(p.pv)}${sayBtn(p.ex, "Écouter l'exemple")}${starBtn("p:" + p.pv)}</div></div>`).join("") || '<p class="empty">Aucun phrasal verb ne correspond.</p>'}</div>`;
   }
-  return `<header class="page-head"><span class="eyebrow">Verbe + particule</span><h1>Phrasal verbs</h1><p>${D.phrasal.length} phrasal verbs classés par situation, expliqués en anglais simple. Ne les traduis pas : regarde ce que fait la particule. Elle a presque toujours la même logique.</p></header>
-  <section class="panel"><div><h2>La logique des particules</h2><p class="muted">Touche une particule pour voir ses phrasal verbs. L'accent tombe sur la particule : set <b>UP</b>, figure <b>OUT</b>, give <b>UP</b>.</p></div>
-    <div class="particles">${PARTICLES.map(([p, idea]) => `<button class="particle" data-act="pv-part" data-p="${p}" aria-pressed="${state.pvPart === p}">${diagram(p)}<b>${p.toUpperCase()}</b><span class="small muted">${idea}</span></button>`).join("")}</div>
+  const cats = D.pvCats.map((c, i) => [c, i, atL.filter(p => p.c === i).length]).filter(x => x[2] > 0);
+  return `${pageHead("Verbe + particule", "Phrasal verbs", `${atL.length} phrasal verbs du niveau ${L}, expliqués en anglais simple. Ne les traduis pas : regarde ce que fait la particule. Elle a presque toujours la même logique.`)}
+  ${parts.length ? `<section class="panel"><div><h2>La logique des particules</h2><p class="muted">Touche une particule pour voir ses phrasal verbs. L'accent tombe sur la particule : set <b>UP</b>, figure <b>OUT</b>, give <b>UP</b>.</p></div>
+    <div class="particles">${parts.map(([p, idea]) => `<button class="particle" data-act="pv-part" data-p="${p}" aria-pressed="${state.pvPart === p}">${diagram(p)}<b>${p.toUpperCase()}</b><span class="small muted">${idea}</span></button>`).join("")}</div>
     <div class="table-wrap"><table class="form-table"><tr><td>Séparable</td><td>Turn <b>off</b> the light. = Turn the light <b>off</b>.</td></tr><tr><td>Avec un pronom</td><td>Turn <b>it</b> off. ✅ · Turn off it. ❌</td></tr><tr><td>Inséparable</td><td>I'm looking <b>for</b> my keys.</td></tr><tr><td>Après to / of / for</td><td>I'm looking forward to <b>meeting</b> you. (-ing)</td></tr></table></div>
-  </section>
+  </section>` : ""}
   <div class="toolbar"><input class="search" id="pv-q" type="search" placeholder="Chercher (ex. up, problem)…" value="${esc(state.pvQ)}" aria-label="Chercher un phrasal verb">
     <div class="chips"><button class="chip" data-act="pv-mode" data-m="list" aria-pressed="${state.pvMode === "list"}">Liste</button><button class="chip" data-act="pv-mode" data-m="flash" aria-pressed="${state.pvMode === "flash"}">Révision (cartes)</button></div></div>
-  <div class="chips"><button class="chip" data-act="pv-cat" data-c="all" aria-pressed="${state.pvCat === "all"}">Toutes les situations</button>${D.pvCats.map((c, i) => `<button class="chip" data-act="pv-cat" data-c="${i}" aria-pressed="${state.pvCat === String(i)}"><span class="pic">${c.emoji}</span> ${esc(c.name)}</button>`).join("")}</div>
-  <div id="pv-body" style="display:flex;flex-direction:column;gap:12px">${body}</div>`;
+  ${cats.length > 1 ? `<div class="chips"><button class="chip" data-act="pv-cat" data-c="all" aria-pressed="${state.pvCat === "all"}">Toutes les situations</button>${cats.map(([c, i, k]) => `<button class="chip" data-act="pv-cat" data-c="${i}" aria-pressed="${state.pvCat === String(i)}"><span class="pic">${c.emoji}</span> ${esc(c.name)} <span class="muted">${k}</span></button>`).join("")}</div>` : ""}
+  <div id="pv-body" style="display:flex;flex-direction:column;gap:12px">${body}</div>
+  ${practiceHtml("pv-" + L, "phrasal", "", shuffle(atL).slice(0, 20).map(p => `${p.pv} — ${p.mean}`).join("\n"))}`;
 }
 
 /* ---------- grammar ---------- */
@@ -610,17 +740,16 @@ function timeline(tl) {
   return `<div class="timeline">${s}</div>`;
 }
 function pageGrammar(sub) {
-  if (sub && sub.startsWith("lvl-")) state.grammarLvl = sub.slice(4);
-  else if (sub) { const g = D.grammar.find(x => x.id === sub); if (g) return grammarView(g); }
-  const list = D.grammar.filter(g => state.grammarLvl === "all" || g.lvl === state.grammarLvl);
-  return `<header class="page-head"><span class="eyebrow">Structure</span><h1>Grammaire</h1><p>${D.grammar.length} points de A1 à C1. Chaque temps a sa ligne du temps : tu VOIS quand l'action se passe au lieu de chercher l'équivalent français. Et pour chaque point, le piège typique des francophones.</p></header>
-  ${levelChips("grammar-lvl", state.grammarLvl)}
-  <div class="grid">${list.map(g => `<a class="tile" href="#grammar-${g.id}"><div class="tile-top"><span class="pic big">${g.pic}</span>${lvlTag(g.lvl)}</div><h3>${esc(g.title)}</h3><p class="muted small">${g.tl ? "Avec ligne du temps · " : ""}${g.quiz.length} questions${known.has("g:" + g.id) ? " · validé ✓" : ""}</p></a>`).join("")}</div>`;
+  const L = curLvl();
+  if (sub) { const g = D.grammar.find(x => x.id === sub); if (g) return grammarView(g); }
+  const list = D.grammar.filter(g => g.lvl === L);
+  return `${pageHead("Structure", "Grammaire", `${list.length} points de grammaire du niveau ${L}, à faire dans l'ordre. Chaque temps a sa ligne du temps : tu VOIS quand l'action se passe au lieu de chercher l'équivalent français. Pour chaque point : le piège typique des francophones, un quiz, et des exercices illimités.`)}
+  <ol class="glist">${list.map((g, i) => `<li><a class="tile gitem${known.has("g:" + g.id) ? " known" : ""}" href="#grammar-${g.id}"><span class="gnum">${i + 1}</span><span class="pic" style="font-size:2rem">${g.pic}</span><span class="gtxt"><b>${esc(g.title)}</b><span class="muted small">${g.tl ? "Ligne du temps · " : ""}quiz${known.has("g:" + g.id) ? " · validé ✓" : ""}</span></span></a></li>`).join("")}</ol>`;
 }
 function grammarView(g) {
-  const idx = D.grammar.indexOf(g); const nxt = D.grammar[idx + 1];
-  return `<a class="btn ghost back" href="#grammar">← Toute la grammaire</a>
-  <header class="page-head"><div class="gtop"><span class="pic">${g.pic}</span><div>${lvlTag(g.lvl)}<h1>${esc(g.title)}</h1></div></div></header>
+  const same = D.grammar.filter(x => x.lvl === g.lvl); const idx = same.indexOf(g); const nxt = same[idx + 1];
+  return `<a class="btn ghost back" href="#grammar">← Grammaire ${g.lvl}</a>
+  <header class="page-head"><div class="gtop"><span class="pic">${g.pic}</span><div>${lvlTag(g.lvl)} <span class="muted small">Point ${idx + 1} / ${same.length}</span><h1>${esc(g.title)}</h1></div></div></header>
   ${g.tl ? `<section class="panel"><span class="eyebrow">Quand ?</span>${timeline(g.tl)}</section>` : ""}
   <section class="panel"><span class="eyebrow">L'idée</span><p style="font-size:1.08rem;max-width:68ch">${esc(g.idea)}</p>
     <div class="table-wrap"><table class="form-table">${g.form.map(r => `<tr><td>${esc(r[0])}</td><td>${r.slice(1).map(esc).join(" · ")}</td></tr>`).join("")}</table></div></section>
@@ -628,21 +757,25 @@ function grammarView(g) {
   <section class="panel"><span class="eyebrow">Le piège du francophone</span><div class="trap"><div class="no"><small>Calque du français</small><span>${esc(g.trap[0])}</span></div><div class="yes"><small>En anglais</small>${esc(g.trap[1])}</div></div></section>
   <section class="panel"><h2>Check yourself</h2>${mcq("g-" + g.id, g.quiz, (score, n) => {
     if (score === n && !known.has("g:" + g.id)) toggleKnown("g:" + g.id);
-    return `Score : ${score} / ${n}. ${score === n ? "Point validé ✓" : "Relis l'idée et le piège, puis réessaie (recharge la page)."}`;
+    return `Score : ${score} / ${n}. ${score === n ? "Point validé ✓" : "Relis l'idée et le piège, puis fais les exercices en plus ci-dessous."}`;
   })}</section>
-  ${nxt ? `<a class="btn" href="#grammar-${nxt.id}" style="align-self:flex-end">Suivant : ${esc(nxt.title)} →</a>` : ""}`;
+  ${practiceHtml("gr-" + g.id, "grammar", g.title + " — " + g.idea, g.form.map(r => r.join(": ")).join("\n"))}
+  ${nxt ? `<a class="btn" href="#grammar-${nxt.id}" style="align-self:flex-end">Point suivant : ${esc(nxt.title)} →</a>` : `<a class="btn" href="#grammar" style="align-self:flex-end">Tous les points ${g.lvl} →</a>`}`;
 }
 
 /* ---------- phonetics ---------- */
 function pagePhonetics() {
-  const tabs = [["lessons", "Cours de prononciation"], ["chart", "Alphabet phonétique (API)"], ["pairs", "Paires minimales"]];
+  const L = curLvl();
+  const tabs = [["lessons", `Leçons ${L}`], ["chart", "Alphabet phonétique (API)"], ["pairs", "Paires minimales"]];
   let body = "";
   if (state.phonTab === "lessons") {
-    body = `<p class="muted">Classés par priorité pour un francophone. Écoute chaque exemple à vitesse normale, puis lente, et répète à voix haute.</p>
-    ${D.pron.map(l => `<details class="panel" ${l.id === "h" ? "open" : ""}><summary class="row" style="cursor:pointer;list-style:none"><span class="pic" style="font-size:1.6rem">${l.e}</span><h3 style="flex:1">${esc(l.title)}</h3>${lvlTag(l.lvl)}</summary>
+    const list = D.pron.filter(l => l.lvl === L);
+    body = `<p class="muted">Les leçons de prononciation du niveau ${L}. Écoute chaque exemple à vitesse normale, puis lente, et répète à voix haute. Touche l'étoile quand tu as travaillé une leçon.</p>
+    ${list.map((l, i) => `<details class="panel" ${i === 0 ? "open" : ""}><summary class="row" style="cursor:pointer;list-style:none"><span class="pic" style="font-size:1.6rem">${l.e}</span><h3 style="flex:1">${esc(l.title)}</h3>${starBtn("l:" + l.id)}</summary>
       <p style="max-width:70ch">${esc(l.body)}</p>
       <div class="lines">${l.ex.map(([t, note]) => `<div class="line">${sayBtn(t)}${slowBtn(t)}<span style="flex:1;min-width:0">${esc(t)}${note ? ` <span class="muted small">— ${esc(note)}</span>` : ""}</span></div>`).join("")}</div>
-      ${l.quiz ? mcq("pron-" + l.id, l.quiz) : ""}</details>`).join("")}`;
+      ${l.quiz ? mcq("pron-" + l.id, l.quiz) : ""}</details>`).join("")}
+    <p class="muted small">Les leçons des autres niveaux restent utiles en révision : change de niveau avec les boutons du menu.</p>`;
   } else if (state.phonTab === "chart") {
     const groups = [["short", "Voyelles courtes"], ["long", "Voyelles longues"], ["diph", "Diphtongues (2 sons qui glissent)"], ["cons", "Consonnes"]];
     const all = Object.values(D.ipa).flat(); const sel = all.find(x => x.s === state.ipaSel);
@@ -654,7 +787,7 @@ function pagePhonetics() {
     if (!state.pg || state.pg.set !== set.id) state.pg = { set: set.id, score: 0, total: 0 };
     if (!state.pg.cur) { const it = pick(set.items); state.pg.cur = { it, side: Math.random() < .5 ? 0 : 1, done: false }; }
     const { it, done } = state.pg.cur;
-    body = `<div class="panel"><div><h3>Entends-tu la différence ?</h3><p class="muted">Tu entends UN des deux mots. Touche la bonne image. Ces paires sont celles que les francophones confondent le plus.</p></div>
+    body = `<div class="panel"><div><h3>Entends-tu la différence ?</h3><p class="muted">Tu entends UN des deux mots. Touche la bonne image. Ces paires sont celles que les francophones confondent le plus, à tous les niveaux.</p></div>
       <div class="chips">${D.pairs.map(p => `<button class="chip" data-act="pair-set" data-s="${p.id}" aria-pressed="${p.id === set.id}"><span class="ipa" style="color:inherit">${esc(p.label)}</span></button>`).join("")}</div>
       <p class="small muted">Astuce : ${esc(set.hint)}</p>
       <div class="toolbar"><div class="row"><button class="btn primary" data-act="pair-play">${IC.speaker} Écouter</button><button class="btn" data-act="pair-play" data-slow="1">${IC.slow} Lentement</button></div><span class="score">${state.pg.score} / ${state.pg.total}</span></div>
@@ -664,7 +797,7 @@ function pagePhonetics() {
     </div>
     <div class="panel"><h3>Toutes les paires de cette série</h3><div class="lines">${set.items.map(x => `<div class="line"><span class="pic">${x[0]}</span>${esc(x[1])}${sayBtn(x[1])}<span class="muted">vs</span><span class="pic">${x[2]}</span>${esc(x[3])}${sayBtn(x[3])}${sayBtn(x[1] + ", " + x[3], "Écouter les deux")}</div>`).join("")}</div></div>`;
   }
-  return `<header class="page-head"><span class="eyebrow">Prononciation</span><h1>Phonétique</h1><p>Les sons de l'anglais, avec l'alphabet phonétique international (API), une image et un mot pour chacun, et des astuces de bouche pour un francophone.${document.body.classList.contains("has-mic") ? " Le bouton micro vérifie si on comprend ton mot." : ""}</p></header>
+  return `${pageHead("Prononciation", "Phonétique", `Les leçons de prononciation du niveau ${L}, plus l'alphabet phonétique international (API) et les paires minimales, utiles à tous les niveaux.${document.body.classList.contains("has-mic") ? " Le bouton micro vérifie si on comprend ton mot." : ""}`)}
   <div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${state.phonTab === id}" data-act="phon-tab" data-t="${id}">${l}</button>`).join("")}</div>${body}`;
 }
 
@@ -672,12 +805,12 @@ function pagePhonetics() {
 function pageTips() {
   return `<header class="page-head"><span class="eyebrow">Méthode</span><h1>Conseils pour arrêter de traduire</h1><p>Traduire, c'est normal au début : ton cerveau s'appuie sur ce qu'il connaît. Ces ${D.tips.length} habitudes créent peu à peu un chemin direct vers l'anglais. Choisis-en deux cette semaine, pas douze.</p></header>
   <div class="grid wide">${D.tips.map(t => `<article class="tile tip"><span class="pic">${t.e}</span><h3>${esc(t.title)}</h3><p>${esc(t.body)}</p><p class="how"><b>Concrètement :</b> ${esc(t.how)}</p></article>`).join("")}</div>
-  <section class="panel"><h2>Ta routine de 30 minutes</h2><div class="table-wrap"><table class="form-table">
-    <tr><td>5 min</td><td>Vocabulaire en images : un quiz « écoute → image »</td></tr>
+  <section class="panel"><h2>Ta routine de 30 minutes, dans ton niveau</h2><div class="table-wrap"><table class="form-table">
+    <tr><td>5 min</td><td>Vocabulaire : un thème, puis le quiz « écoute → image »</td></tr>
     <tr><td>5 min</td><td>2 chunks + 3 phrasal verbs, à voix haute, avec une phrase vraie sur ta vie</td></tr>
-    <tr><td>10 min</td><td>Une mini-histoire : écoute sans lire, puis lis en écoutant, puis shadowing d'un passage</td></tr>
-    <tr><td>5 min</td><td>Phonétique : une paire minimale ou un cours de prononciation</td></tr>
-    <tr><td>5 min</td><td>Self-talk ou journal de 5 lignes, directement en anglais</td></tr>
+    <tr><td>10 min</td><td>Grammaire (un point, puis exercices en plus) ou une mini-histoire</td></tr>
+    <tr><td>5 min</td><td>Une dictée ou une leçon de phonétique</td></tr>
+    <tr><td>5 min</td><td>Parler avec l'IA, ou 15 minutes de podcast pendant les transports</td></tr>
   </table></div></section>`;
 }
 
@@ -693,12 +826,88 @@ function sampleErr(code) {
     session_expired: "Reconnecte-toi à claude.ai, puis réessaie.",
     refused: "Claude a refusé cette demande. Reformule ton message.",
     empty_completion: "La réponse est vide. Réessaie.",
-    prompt_too_large: "La conversation est trop longue : commence une nouvelle conversation."
+    prompt_too_large: "La conversation est trop longue : commence une nouvelle conversation.",
+    access_code: "Code d'accès manquant ou incorrect. Réessaie : le site te le redemandera.",
+    invalid_json: "La réponse de Claude était mal formée. Réessaie."
   })[code] || "La connexion à Claude a échoué. Réessaie.";
 }
 function sampleUnavailable(what) {
   if (SAMPLE_STATE === "pending") return `<div class="panel"><p class="muted">Connexion à Claude…</p></div>`;
-  return `<div class="panel"><h3>${what} a besoin de Claude</h3><p class="muted">Ouvre ce site depuis claude.ai (dans Chrome, Edge ou l'application Claude) et autorise-le à utiliser Claude. ${SAMPLE_STATE === "denied" ? "Tu l'as refusé pour cette page : tu peux changer ça dans le menu Permissions de l'artifact." : ""}</p></div>`;
+  return `<div class="panel"><h3>${what} a besoin de Claude</h3><p class="muted">Ouvre ce site depuis claude.ai, ou depuis sa version en ligne (Netlify) configurée avec une clé API Claude. ${SAMPLE_STATE === "denied" ? "L'accès à Claude a été refusé pour cette page." : ""}</p></div>`;
+}
+
+/* Outside claude.ai (e.g. on Netlify), Claude is reached through the site's own function /api/claude,
+   which keeps the API key on the server. Same interface as the claude.ai capability: sample(input, opts) and sample.json(). */
+const API_URL = "/api/claude";
+function parseJsonLoose(text) {
+  const tries = [text, (text.match(/```(?:json)?\s*([\s\S]*?)```/) || [])[1]];
+  const a = text.search(/[[{]/), b = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (a >= 0 && b > a) tries.push(text.slice(a, b + 1));
+  for (const t of tries) { if (!t) continue; try { return JSON.parse(t); } catch (e) { /* next */ } }
+  return undefined;
+}
+function makeServerSample() {
+  const post = (input, opts) => fetch(API_URL, {
+    method: "POST", signal: opts.signal,
+    headers: { "content-type": "application/json", "x-access-code": store.get("accessCode", "") },
+    body: JSON.stringify({ input, effort: opts.effort })
+  });
+  const call = async (input, opts = {}) => {
+    let res;
+    try {
+      res = await post(input, opts);
+      if (res.status === 401) {
+        const code = window.prompt("Code d'accès du site (donné par la personne qui l'a mis en ligne) :");
+        if (!code) throw { code: "access_code", message: "No access code" };
+        store.set("accessCode", code.trim());
+        res = await post(input, opts);
+      }
+    } catch (e) {
+      if (e && e.code) throw e;
+      throw { code: opts.signal && opts.signal.aborted ? "cancelled" : "upstream_error", message: String(e) };
+    }
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 401) store.set("accessCode", "");
+      throw { code: j.code || "upstream_error", message: j.message || res.statusText };
+    }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "", text = "", truncated = false;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i); buf = buf.slice(i + 1);
+          if (!line.trim()) continue;
+          const m = JSON.parse(line);
+          if (m.t) { text += m.t; if (opts.onText) opts.onText({ text, delta: m.t }); }
+          else if (m.error) throw { code: m.error, message: m.error, text };
+          else if (m.done) truncated = !!m.truncated;
+        }
+      }
+    } catch (e) {
+      if (opts.signal && opts.signal.aborted) throw { code: "cancelled", message: "cancelled", text };
+      throw e && e.code ? e : { code: "upstream_error", message: String(e), text };
+    }
+    if (!text.trim()) throw { code: "empty_completion", message: "Empty answer" };
+    return { text, truncated };
+  };
+  const sample = (input, opts) => call(input, opts);
+  sample.json = async (input, opts) => {
+    const { text } = await call(input, opts);
+    const v = parseJsonLoose(text);
+    if (v === undefined) throw { code: "invalid_json", message: "No JSON in the answer", text };
+    return v;
+  };
+  sample.backend = "server";
+  return sample;
+}
+async function findServerSample() {
+  if (!/^https?:$/.test(location.protocol)) return null;
+  try { const r = await fetch(API_URL, { method: "GET" }); return r.ok ? makeServerSample() : null; } catch (e) { return null; }
 }
 
 /* ---------- podcasts ---------- */
@@ -749,7 +958,10 @@ function podGenerate(ep) {
   const ctl = new AbortController();
   podGen = { id: ep.id, ctl, text: "" };
   rerender();
-  SAMPLE(podPrompt(ep), { signal: ctl.signal, cache: false, onText: ({ text }) => { podGen.text = text; podLive(ep); } })
+  const run = SAMPLE.backend === "server"
+    ? podGenerateInTwoParts(ep, ctl)
+    : SAMPLE(podPrompt(ep), { signal: ctl.signal, cache: false, onText: ({ text }) => { podGen.text = text; podLive(ep); } });
+  run
     .then(({ text, truncated }) => {
       podGen = null;
       const d = parsePod(text);
@@ -766,6 +978,17 @@ function podGenerate(ep) {
       if (e.code !== "cancelled") { markDenied(e.code); toast(sampleErr(e.code), 6000); }
       if (currentBase === "podcasts") rerender();
     });
+}
+/* On a server with a 60-second limit per request (Netlify), the episode is written in two halves. */
+async function podGenerateInTwoParts(ep, ctl) {
+  const half = Math.round(POD_GUIDE[ep.lvl].words / 2);
+  const base = podPrompt(ep);
+  const p1 = await SAMPLE(`${base}\n\nIMPORTANT: write only the FIRST HALF of the episode now: the welcome and the first part of the main conversation, about ${half} words, 25 to 45 turns. Stop in the middle of the conversation. No goodbye, no VOCAB lines, no QUIZ lines.`,
+    { signal: ctl.signal, onText: ({ text }) => { podGen.text = text; podLive(ep); } });
+  const first = p1.text.trim();
+  const p2 = await SAMPLE(`${base}\n\nThe first half of the script is already written:\n\n${first}\n\nNow write ONLY the SECOND HALF, continuing naturally from the last line (do not repeat anything): the rest of the main conversation, the "Words of the day" segment, the recap and the goodbye, about ${half} words. Then the 6 VOCAB lines and the 5 QUIZ lines.`,
+    { signal: ctl.signal, onText: ({ text }) => { podGen.text = first + "\n" + text; podLive(ep); } });
+  return { text: first + "\n" + p2.text, truncated: p2.truncated };
 }
 function podLive(ep) {
   const box = $("#pod-live"); if (!box || !podGen) return;
@@ -784,19 +1007,16 @@ function podPlay(ep, from) {
   const b = $("#pod-pause"); if (b) b.textContent = "Pause";
 }
 function pagePodcasts(sub) {
-  if (sub && sub.startsWith("lvl-")) state.podLvl = sub.slice(4);
-  else if (sub) { const ep = D.podcasts.find(x => x.id === sub); if (ep) return podcastView(ep); }
-  const lv = state.podLvl || "all";
-  const list = D.podcasts.filter(p => lv === "all" || p.lvl === lv);
-  return `<header class="page-head"><span class="eyebrow">Écoute longue</span><h1>Podcasts</h1><p>100 épisodes d'environ 15 minutes, 20 par niveau. Sam et Alex discutent d'un sujet de la vie réelle, à ton niveau, sans jamais traduire. Chaque épisode a sa transcription, ses 6 mots du jour et un quiz.</p>
-  <p class="small muted">Claude écrit chaque épisode la première fois que tu l'ouvres (environ une minute), puis il reste enregistré dans ce navigateur.</p></header>
-  ${levelChips("pod-lvl", lv)}
+  if (sub) { const ep = D.podcasts.find(x => x.id === sub); if (ep) return podcastView(ep); }
+  const L = curLvl();
+  const list = D.podcasts.filter(p => p.lvl === L);
+  return `${pageHead("Écoute longue", "Podcasts", `${list.length} épisodes d'environ 15 minutes pour le niveau ${L}. Sam et Alex discutent d'un sujet de la vie réelle, à ton niveau, sans jamais traduire. Chaque épisode a sa transcription, ses 6 mots du jour et un quiz. Claude écrit chaque épisode la première fois que tu l'ouvres (environ une minute), puis il reste enregistré dans ce navigateur.`)}
   <div class="grid">${list.map(p => { const ready = podReady(p.id); return `<a class="tile" href="#podcasts-${p.id}"><div class="tile-top"><span class="eyebrow">Épisode ${p.n}</span>${lvlTag(p.lvl)}</div><h3>${esc(p.title)}</h3><p class="muted small">${esc(p.focus)}</p><p class="small">${known.has("e:" + p.id) ? "Écouté ✓" : ready ? "Prêt à écouter" : '<span class="muted">À créer</span>'}</p></a>`; }).join("")}</div>`;
 }
 function podcastView(ep) {
   const d = store.get("pod:" + ep.id, null);
   const g = POD_GUIDE[ep.lvl];
-  const idx = D.podcasts.indexOf(ep), nxt = D.podcasts[idx + 1];
+  const idx = D.podcasts.indexOf(ep), nxt = D.podcasts[idx + 1] && D.podcasts[idx + 1].lvl === ep.lvl ? D.podcasts[idx + 1] : null;
   let body;
   if (!d) {
     if (podGen && podGen.id === ep.id) {
@@ -832,7 +1052,7 @@ function podcastView(ep) {
       })}</section>` : ""}
       <button class="btn ghost" data-act="pod-regen" data-id="${ep.id}" style="align-self:flex-start">Réécrire cet épisode</button>`;
   }
-  return `<a class="btn ghost back" href="#podcasts">← Tous les épisodes</a>
+  return `<a class="btn ghost back" href="#podcasts">← Podcasts ${ep.lvl}</a>
   <header class="page-head"><div class="row">${lvlTag(ep.lvl)}<span class="eyebrow">Épisode ${ep.n} / 100</span></div><h1>${esc(ep.title)}</h1><p>${esc(ep.focus)}</p></header>
   ${body}
   ${nxt ? `<a class="btn" href="#podcasts-${nxt.id}" style="align-self:flex-end">Épisode suivant : ${esc(nxt.title)} →</a>` : ""}`;
@@ -856,11 +1076,13 @@ const CHAT_LVL = {
   B2: "natural English with phrasal verbs, collocations and a few idioms",
   C1: "fully natural, idiomatic English with nuance"
 };
-const chat = Object.assign({ sc: "free", lvl: store.get("placement", null) || "B1", msgs: [] }, store.get("chat", {}));
+const chat = Object.assign({ sc: "free", msgs: [] }, store.get("chat", {}));
+delete chat.lvl;
+Object.defineProperty(chat, "lvl", { get: () => curLvl() || "B1", enumerable: false });
 if (settings.chatFix === undefined) settings.chatFix = true;
 if (settings.chatVoice === undefined) settings.chatVoice = true;
 let chatCtl = null, chatErr = null, chatSugg = null;
-const saveChat = () => store.set("chat", { sc: chat.sc, lvl: chat.lvl, msgs: chat.msgs.slice(-60) });
+const saveChat = () => store.set("chat", { sc: chat.sc, msgs: chat.msgs.slice(-60) });
 function chatRules() {
   const sc = SCENARIOS.find(s => s.id === chat.sc) || SCENARIOS[0];
   return `You are an English conversation partner on a learning website. The learner is a French speaker, CEFR level ${chat.lvl}. Their main difficulty is that they translate from French in their head, so help them think directly in English.
@@ -930,7 +1152,7 @@ function renderChatLog() {
   const log = $("#chat-log"); if (!log) return;
   let html = chat.msgs.map(chatBubble).join("");
   if (chatCtl) html += `<div class="msg ai"><div class="bub thinking" id="chat-stream">…</div></div>`;
-  if (!chat.msgs.length && !chatCtl) html += `<div class="empty">Choisis un scénario et ton niveau, puis lance la conversation. Claude parle en premier.<br><br><button class="btn primary" data-act="chat-start">Commencer la conversation</button></div>`;
+  if (!chat.msgs.length && !chatCtl) html += `<div class="empty">Choisis un scénario, puis lance la conversation. Claude parle en premier.<br><br><button class="btn primary" data-act="chat-start">Commencer la conversation</button></div>`;
   if (chatErr) html += `<div class="fixes" style="align-self:center"><b>${esc(sampleErr(chatErr))}</b><button class="btn" data-act="chat-retry" style="align-self:flex-start">Réessayer</button></div>`;
   log.innerHTML = html;
   log.scrollTop = log.scrollHeight;
@@ -942,10 +1164,10 @@ function pageChat() {
   if (!SAMPLE) return `<header class="page-head"><span class="eyebrow">Conversation</span><h1>Parler avec l'IA</h1></header>${sampleUnavailable("Le chat")}`;
   setTimeout(renderChatLog, 0);
   const quick = ["Can you say that more simply?", "Sorry, could you repeat that?", "What does that word mean?", "How do you say it in English?"];
-  return `<header class="page-head"><span class="eyebrow">Conversation</span><h1>Parler avec l'IA</h1><p>Un partenaire de conversation qui s'adapte à ton niveau. Écris ou parle au micro, en anglais. Tes erreurs sont corrigées sous ton message, sans traduction.</p></header>
+  return `${pageHead("Conversation", "Parler avec l'IA", `Un partenaire de conversation qui parle au niveau ${chat.lvl}. Écris ou parle au micro, en anglais. Tes erreurs sont corrigées sous ton message, sans traduction.`)}
   <div class="chat-wrap">
     <div class="chips">${SCENARIOS.map(s => `<button class="chip" data-act="chat-sc" data-s="${s.id}" aria-pressed="${chat.sc === s.id}">${esc(s.name)}</button>`).join("")}</div>
-    <div class="toolbar"><div class="chips">${LEVELS.map(l => `<button class="chip" data-act="chat-lvl" data-l="${l}" aria-pressed="${chat.lvl === l}">${l}</button>`).join("")}</div>
+    <div class="toolbar"><span class="muted small">Le niveau de langue suit ton niveau (${chat.lvl}).</span>
       <div class="row"><label class="switch" style="gap:8px">Corrections <input type="checkbox" id="chat-fix"${settings.chatFix ? " checked" : ""}></label><label class="switch" style="gap:8px">Réponses à voix haute <input type="checkbox" id="chat-voice"${settings.chatVoice ? " checked" : ""}></label><button class="btn ghost" data-act="chat-new">Nouvelle conversation</button></div></div>
     <div class="chat-log" id="chat-log" aria-live="polite"></div>
     <div class="chips">${quick.map(q => `<button class="chip" data-act="chat-quick" data-t="${esc(q)}">${esc(q)}</button>`).join("")}<button class="chip" data-act="chat-sugg">Je ne sais pas quoi dire</button></div>
@@ -962,16 +1184,19 @@ const PAGES = { home: pageHome, levels: pageLevels, audio: pageAudio, podcasts: 
 function render(keepScroll) {
   const h = (location.hash || "#home").slice(1);
   const i = h.indexOf("-");
-  const base = i < 0 ? h : h.slice(0, i), sub = i < 0 ? "" : h.slice(i + 1);
+  const base = i < 0 ? h : h.slice(0, i);
+  let sub = i < 0 ? "" : h.slice(i + 1);
+  if (sub.startsWith("lvl-")) { setLevel(sub.slice(4)); sub = ""; }
   const fn = PAGES[base] || pageHome;
   currentBase = PAGES[base] ? base : "home";
   const y = window.scrollY;
-  $("#main").innerHTML = `<div class="page">${fn(sub)}</div>`;
+  const html = !curLvl() && MODULE_IDS.includes(currentBase) && !sub ? pagePicker() : fn(sub);
+  $("#main").innerHTML = `<div class="page">${html}</div>`;
   renderNav();
   if (!keepScroll) window.scrollTo(0, 0); else window.scrollTo(0, y);
 }
 function rerender() { render(true); }
-window.addEventListener("hashchange", () => { Audio.stop(); closePop(); state.flash = null; render(false); });
+window.addEventListener("hashchange", () => { Audio.stop(); closePop(); state.flash = null; Object.values(state.practiceCtl).forEach(c => c.abort()); state.practiceCtl = {}; state.practice = {}; render(false); });
 
 /* ================= ACTIONS ================= */
 const ACTS = {
@@ -991,20 +1216,34 @@ const ACTS = {
     const s = currentStory; const clear = () => $$(".scene.playing").forEach(x => x.classList.remove("playing"));
     Audio.speak(s.scenes.map((sc, i) => ({ text: sc.t, id: "sc" + i })), { rate: b.dataset.slow ? 0.75 : undefined, onLine: id => { clear(); if (id) { const el = document.getElementById(id); if (el) { el.classList.add("playing"); el.scrollIntoView({ block: "nearest", behavior: "smooth" }); } } }, onEnd: clear });
   },
-  "story-lvl": b => { state.storyLvl = b.dataset.l; if (location.hash !== "#stories") location.hash = "#stories"; else rerender(); },
-  "grammar-lvl": b => { state.grammarLvl = b.dataset.l; if (location.hash !== "#grammar") location.hash = "#grammar"; else rerender(); },
+  "set-level": b => {
+    setLevel(b.dataset.l); toast(`Niveau ${b.dataset.l} : tous les modules sont maintenant à ce niveau.`);
+    const h = location.hash.slice(1); const base = h.split("-")[0];
+    if (b.dataset.go === "home" || !h || base === "home" || base === "levels") { if (location.hash === "#home") rerender(); else location.hash = "#home"; }
+    else if (h.includes("-") && base !== "vocab") location.hash = "#" + base;
+    else rerender();
+  },
+  "practice-gen": b => practiceGen(b.dataset.k),
+  "practice-stop": b => { const c = state.practiceCtl[b.dataset.k]; if (c) c.abort(); },
+  "story-gen": () => storyGenerate(),
+  "story-stop": () => { if (storyGen) storyGen.ctl.abort(); },
+  "story-theme": b => { state.storyTheme = b.dataset.t; $$('[data-act="story-theme"]').forEach(x => x.setAttribute("aria-pressed", x.dataset.t === state.storyTheme)); },
+  "story-del": b => { store.set("gstories", genStories().filter(s => s.id !== b.dataset.id)); location.hash = "#stories"; },
+  "dict-go": b => { state.dictI = +b.dataset.i; rerender(); },
   "audio-tab": b => { state.audioTab = b.dataset.t; Audio.stop(); rerender(); },
-  "audio-lvl": b => { state.audioLvl = b.dataset.l; rerender(); },
-  "dict-lvl": b => { state.dictLvl = b.dataset.l; state.dictI = 0; rerender(); },
   "dict-next": () => { state.dictI++; rerender(); },
-  "dict-check": () => { const s = D.dictation[state.dictLvl][state.dictI % D.dictation[state.dictLvl].length]; const r = lcsDiff(s, $("#dict-in").value); $("#dict-res").innerHTML = `<p style="font-size:1.1rem">${r.html}</p><p class="muted small">${r.score} / ${r.total} mots. En rouge : ce qui manque ou diffère.</p>`; },
+  "dict-check": () => {
+    const L = curLvl(); const list = D.dictation[L]; const i = state.dictI % list.length;
+    const r = lcsDiff(list[i], $("#dict-in").value); const ok = r.score === r.total;
+    if (ok && !known.has("d:" + L + ":" + i)) { toggleKnown("d:" + L + ":" + i); const dot = $(`.dot[data-i="${i}"]`); if (dot) dot.classList.add("done"); }
+    $("#dict-res").innerHTML = `<p style="font-size:1.1rem">${r.html}</p><p class="muted small">${r.score} / ${r.total} mots. ${ok ? "Sans faute : dictée cochée ✓" : "En rouge : ce qui manque ou diffère. Réécoute et corrige."}</p>`;
+  },
   "shadow-all": b => { const si = +b.dataset.s; const sh = D.shadowing[si]; const clear = () => $$(".line.playing").forEach(x => x.classList.remove("playing")); Audio.speak(sh.lines.map((t, li) => ({ text: t, id: `sh-${si}-${li}` })), { rate: b.dataset.slow ? 0.75 : undefined, onLine: id => { clear(); if (id) { const el = document.getElementById(id); if (el) el.classList.add("playing"); } }, onEnd: clear }); },
   "vocab-tab": b => { state.vocabTab = b.dataset.t; state.flash = null; rerender(); },
   "vw-check": () => { const f = state.flash; const x = f.order[f.i % f.order.length]; const ok = norm($("#vw-in").value) === norm(x.w.split(" / ")[0].replace(/\(.*?\)/g, "")); const r = $("#vw-res"); if (ok) { if (!f.answered) f.ok++; f.answered = true; r.innerHTML = `<span style="color:var(--good)">Oui : ${esc(x.w)}</span> <span class="ipa">${esc(x.ipa)}</span> <button class="btn" data-act="vw-next">Suivant →</button>`; Audio.speak(x.w); } else { f.answered = true; r.innerHTML = `<span style="color:var(--bad)">Pas tout à fait.</span> <button class="btn ghost" data-act="vw-show">Voir la réponse</button>`; } },
   "vw-show": () => { const f = state.flash; const x = f.order[f.i % f.order.length]; f.answered = true; $("#vw-res").innerHTML = `${esc(x.w)} <span class="ipa">${esc(x.ipa)}</span> <button class="btn" data-act="vw-next">Suivant →</button>`; Audio.speak(x.w); },
   "vw-next": () => { state.flash.i++; state.flash.answered = false; rerender(); setTimeout(() => { const i = $("#vw-in"); if (i) i.focus(); }, 0); },
   "chunk-cat": b => { state.chunkCat = b.dataset.c; state.chunkLimit = 60; rerender(); },
-  "chunk-lvl": b => { state.chunkLvl = b.dataset.l; state.chunkCat = "all"; state.chunkLimit = 60; rerender(); },
   "chunk-more": () => { state.chunkLimit += 60; rerender(); },
   "chunk-mode": b => { state.chunkMode = b.dataset.m; rerender(); },
   "cf-show": () => { state.cf.shown = true; rerender(); Audio.speak(state.cf.c.chunk); },
@@ -1019,7 +1258,6 @@ const ACTS = {
   "pair-set": b => { state.pairSet = b.dataset.s; state.pg = null; rerender(); },
   "pair-play": b => { const c = state.pg.cur; Audio.speak(c.it[c.side * 2 + 1], b.dataset.slow ? { rate: 0.7 } : {}); },
   "pair-pick": b => { const c = state.pg.cur; if (c.done) return; const k = +b.dataset.k; c.done = true; state.pg.total++; const ok = k === c.side; if (ok) state.pg.score++; rerender(); $("#pair-" + c.side).classList.add("right"); if (!ok) $("#pair-" + k).classList.add("wrong"); $("#pair-msg").innerHTML = ok ? `<span style="color:var(--good)">Bravo : « ${esc(c.it[c.side * 2 + 1])} »</span>` : `<span style="color:var(--bad)">C'était « ${esc(c.it[c.side * 2 + 1])} ». Réécoute les deux.</span>`; },
-  "pod-lvl": b => { state.podLvl = b.dataset.l; if (location.hash !== "#podcasts") location.hash = "#podcasts"; else rerender(); },
   "pod-gen": b => { const ep = D.podcasts.find(x => x.id === b.dataset.id); if (ep) podGenerate(ep); },
   "pod-regen": b => { const ep = D.podcasts.find(x => x.id === b.dataset.id); if (!ep || !SAMPLE) { toast("La réécriture a besoin de Claude (ouvre le site sur claude.ai)."); return; } Audio.stop(); podGenerate(ep); },
   "pod-cancel": () => { if (podGen) podGen.ctl.abort(); },
@@ -1036,7 +1274,6 @@ const ACTS = {
   "chat-mic": () => Mic.startChat(),
   "chat-new": () => { if (chatCtl) chatCtl.abort(); chat.msgs = []; chatErr = null; chatSugg = null; saveChat(); renderChatLog(); },
   "chat-sc": b => { if (chatCtl) chatCtl.abort(); chat.sc = b.dataset.s; chat.msgs = []; chatErr = null; chatSugg = null; saveChat(); rerender(); chatAsk(); },
-  "chat-lvl": b => { chat.lvl = b.dataset.l; saveChat(); $$('[data-act="chat-lvl"]').forEach(x => x.setAttribute("aria-pressed", x.dataset.l === chat.lvl)); },
   "pair-next": () => { state.pg.cur = null; rerender(); const c = state.pg.cur; Audio.speak(c.it[c.side * 2 + 1]); }
 };
 document.addEventListener("click", e => {
@@ -1072,7 +1309,8 @@ Audio.init();
 Mic.init().then(() => { if (Mic.d && (currentBase === "phonetics" || currentBase === "vocab")) rerender(); });
 (async () => {
   if (window.claude && typeof window.claude.use === "function") { try { SAMPLE = await window.claude.use("sample"); } catch (e) { SAMPLE = null; } }
+  else SAMPLE = await findServerSample();
   SAMPLE_STATE = SAMPLE ? "ok" : "none";
-  if (currentBase === "podcasts" || currentBase === "chat") rerender();
+  if (["podcasts", "chat", "stories", "vocab", "grammar", "chunks", "phrasal"].includes(currentBase)) rerender();
 })();
 })();

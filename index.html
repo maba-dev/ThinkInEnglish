@@ -339,6 +339,49 @@ a.tile:hover, button.tile:hover { border-color: var(--accent); box-shadow: var(-
 .chat-input textarea { flex: 1; min-width: 0; font: inherit; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; min-height: 52px; }
 .icon-btn.mic.on { background: var(--bad); color: var(--card); border-color: var(--bad); }
 
+
+/* ---------- level-first structure ---------- */
+.lvl-switch { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.lvl-btn { border: 2px solid var(--line); background: var(--card); border-radius: 10px; padding: 6px 0; font-family: var(--f-display); font-weight: 800; font-size: .95rem; color: var(--ink); }
+.lvl-btn:hover { border-color: var(--lc); }
+.lvl-btn[aria-pressed="true"] { background: var(--lc); border-color: var(--lc); color: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lvl-btn[aria-pressed="true"] { color: #0E1719; } }
+:root[data-theme="dark"] .lvl-btn[aria-pressed="true"] { color: #0E1719; }
+.nav-sep { font-size: .7rem; text-transform: uppercase; letter-spacing: .09em; font-weight: 700; color: var(--muted); padding: 14px 10px 4px; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.pick { display: flex; flex-direction: column; text-align: left; padding: 0; border: 2px solid var(--line); border-radius: var(--r); background: var(--card); overflow: hidden; }
+.pick:hover { border-color: var(--lc); box-shadow: var(--shadow); }
+.pick-band { background: var(--lc); color: #fff; padding: 14px; display: flex; align-items: baseline; gap: 10px; }
+.pick-band b { font-family: var(--f-display); font-size: 2rem; line-height: 1; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pick-band { color: #0E1719; } }
+:root[data-theme="dark"] .pick-band { color: #0E1719; }
+.pick-body { padding: 14px; display: flex; flex-direction: column; gap: 6px; font-size: .92rem; }
+.pick-body .chip { align-self: flex-start; }
+.lvl-hero { display: grid; grid-template-columns: 150px minmax(0, 1fr); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; background: var(--card); box-shadow: var(--shadow); }
+.lvl-hero-band { background: var(--lc); color: #fff; padding: 22px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.lvl-hero-band b { font-family: var(--f-display); font-size: 3.6rem; line-height: 1; font-weight: 800; }
+.lvl-hero-band span { font-size: .85rem; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lvl-hero-band { color: #0E1719; } }
+:root[data-theme="dark"] .lvl-hero-band { color: #0E1719; }
+.lvl-hero-body { padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lvl-hero h1 em { font-style: normal; color: var(--lc); }
+.progress.big { height: 10px; }
+@media (max-width: 600px) { .lvl-hero { grid-template-columns: minmax(0, 1fr); } .lvl-hero-band { flex-direction: row; align-items: baseline; gap: 12px; padding: 16px 22px; } .lvl-hero-band b { font-size: 2.4rem; } }
+.modgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.mod h3 { font-size: 1.1rem; }
+.glist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.gitem { flex-direction: row; align-items: center; gap: 14px; }
+.gitem.known { border-color: var(--good); }
+.gnum { font-family: var(--f-display); font-weight: 800; font-size: 1.3rem; color: var(--muted); width: 1.6em; text-align: center; flex: none; font-variant-numeric: tabular-nums; }
+.gtxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dots { display: flex; flex-wrap: wrap; gap: 6px; }
+.dot { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); font-weight: 700; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.dot.done { background: var(--good-soft); border-color: var(--good); }
+.dot.cur { outline: 3px solid var(--spark); outline-offset: 1px; }
+.why { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); }
+.practice { border-style: dashed; }
+@media (max-width: 860px) { .lvl-switch { margin-right: 44px; } .nav-sep { display: none; } }
+
 /* ---------- popover, toast, now-playing ---------- */
 .pop { position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); width: min(420px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 10px 40px rgba(0,0,0,.25); padding: 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; }
 .pop .pic { font-size: 2.8rem; }
@@ -356,6 +399,7 @@ a.tile:hover, button.tile:hover { border-color: var(--accent); box-shadow: var(-
 <div class="app">
   <aside class="rail" id="rail">
     <a class="brand" href="#home"><b>Think in English</b><span>Voir · Écouter · Dire — sans traduire</span></a>
+    <div class="lvl-switch" id="lvl-switch" role="group" aria-label="Mon niveau"></div>
     <nav class="nav" id="nav" aria-label="Sections"></nav>
     <div class="settings" id="settings">
       <button class="icon-btn gear" id="gear" aria-label="Réglages audio" title="Réglages audio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg></button>
@@ -384,12 +428,17 @@ a.tile:hover, button.tile:hover { border-color: var(--accent); box-shadow: var(-
 
 <script src="data/extra.js"></script>
 <script src="data/vocab.js"></script>
+<script src="data/vocab_more.js"></script>
 <script src="data/chunks.js"></script>
 <script src="data/chunks_more.js"></script>
 <script src="data/chunks_more2.js"></script>
 <script src="data/phrasal.js"></script>
+<script src="data/phrasal_more.js"></script>
 <script src="data/grammar.js"></script>
+<script src="data/grammar_more.js"></script>
 <script src="data/stories.js"></script>
+<script src="data/stories_more.js"></script>
 <script src="data/phonetics.js"></script>
 <script src="data/podcasts.js"></script>
+<script src="data/extra_more.js"></script>
 <script src="app.js"></script>
