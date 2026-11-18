@@ -284,7 +284,7 @@ function renderNav() {
   const a = (id, label, small) => `<a href="#${id}"${id === currentBase ? ' aria-current="page"' : ""}>${label}<small>${small || ""}</small></a>`;
   let html = a("home", L ? `Mon parcours ${L}` : "Choisir mon niveau", L ? overall(pr) + " %" : "");
   if (L) html += `<span class="nav-sep">Modules ${L}</span>` + MODULES.map(([id, label]) => a(id, label, pr[id] ? `${pr[id][0]}/${pr[id][1]}` : "")).join("");
-  html += `<span class="nav-sep">Général</span>` + a("levels", "Test & niveaux") + a("tips", "Conseils");
+  html += `<span class="nav-sep">Général</span>` + a("cours", "Cours PDF", `${countKnown("j:")}/${COURS_N}`) + a("levels", "Test & niveaux") + a("tips", "Conseils");
   $("#nav").innerHTML = html;
 }
 
@@ -419,7 +419,8 @@ function pageHome() {
   const w = lv[dayIndex % lv.length], c = cs[dayIndex % cs.length], p = ps[dayIndex % ps.length];
   const key = "home-" + L; if (!pqs[key]) pqNew(key, lv);
   const g1 = D.grammar.find(x => x.lvl === L && !known.has("g:" + x.id)), s1 = D.stories.find(x => x.lvl === L && !known.has("s:" + x.id)), e1 = D.podcasts.find(x => x.lvl === L && !known.has("e:" + x.id));
-  const steps = [g1 && ["grammar-" + g1.id, "Grammaire", g1.title], s1 && ["stories-" + s1.id, "Histoire", s1.title], e1 && ["podcasts-" + e1.id, "Podcast", e1.title]].filter(Boolean);
+  const j1 = ["A2", "B1", "B2"].includes(L) && D.cours.days.find(d => !known.has("j:" + d[0]));
+  const steps = [g1 && ["grammar-" + g1.id, "Grammaire", g1.title], s1 && ["stories-" + s1.id, "Histoire", s1.title], e1 && ["podcasts-" + e1.id, "Podcast", e1.title], j1 && ["cours", "Cours PDF", "Day " + j1[0]]].filter(Boolean);
   return `
   <section class="lvl-hero" style="--lc:${lvlCol(L)}">
     <div class="lvl-hero-band"><b>${L}</b><span>${esc(info.name)}</span></div>
@@ -801,6 +802,69 @@ function pagePhonetics() {
   <div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${state.phonTab === id}" data-act="phon-tab" data-t="${id}">${l}</button>`).join("")}</div>${body}`;
 }
 
+/* ---------- cours PDF : programme de 100 jours, A2-B1 → B2 ---------- */
+const COURS_N = 100;
+const COURS_PH = [
+  [1, "A2 → B1", "Fondations", "Consolider toute la base A2-B1 et casser le réflexe de traduire. Explications en français.", "a2"],
+  [2, "B1 → B2", "Du B1 au B2", "Toute la grammaire B2, collocations, formation des mots, registre. Explications en anglais simple.", "b1"],
+  [3, "B2", "Maîtrise du B2 et entretiens", "Techniques d'examen et une semaine d'entretiens d'embauche (jours 78 à 84).", "b2"],
+  [4, "B2", "Examens blancs", "Examens blancs en conditions réelles et dernier sprint avant la certification.", "c1"]
+];
+const COURS_DOCS = [
+  ["README.pdf", "📘", "Guide du programme", "La méthode, le planning des 100 jours et le choix de l'examen. À lire en entier le jour 1."],
+  ["Error_Log.pdf", "📝", "Journal d'erreurs", "Note chaque erreur et sa correction. C'est l'outil le plus important."],
+  ["Progress_Tracker.pdf", "📈", "Suivi des progrès", "Tes scores, tes examens blancs et tes bilans de fin de phase."],
+  ["Phrasal_Verbs.pdf", "🔗", "Les 102 phrasal verbs", "Les phrasal verbs du programme, 3 par jour."],
+  ["Chunks.pdf", "💬", "Les 200 chunks", "Les blocs tout faits du programme, 2 par jour."],
+  ["Suivi_Programme.xlsx", "✅", "Tableau de suivi (Excel)", "À cocher chaque soir, bloc par bloc, avec un tableau de bord."]
+];
+const coursPh = p => COURS_PH[p - 1];
+const coursDays = () => D.cours.days.map(([n, ph, wk, theme, title]) => ({ n, ph, wk, theme, title, file: "Day" + String(n).padStart(3, "0") + ".pdf" }));
+const coursSize = f => { const k = D.cours.kb[f]; return !k ? "" : k >= 1024 ? (k / 1024).toFixed(1).replace(".", ",") + " Mo" : k + " Ko"; };
+const coursLinks = (f, label = "") => `<a class="btn" href="cours/${f}" target="_blank" rel="noopener"${label ? ` aria-label="Ouvrir ${label}"` : ""}>Ouvrir</a><a class="btn ghost" href="cours/${f}" download="${f}"${label ? ` aria-label="Télécharger ${label}"` : ""}>Télécharger</a>`;
+const coursDoneBtn = d => { const on = known.has("j:" + d.n); return `<button class="btn done-btn" data-act="cours-done" data-n="${d.n}" aria-pressed="${on}">${on ? "Fait ✓" : "Marquer fait"}</button>`; };
+const phTag = p => `<span class="lvl" style="background:var(--${coursPh(p)[4]})">Phase ${p}</span>`;
+function pageCours(sub) {
+  const days = coursDays(), done = days.filter(d => known.has("j:" + d.n)).length, next = days.find(d => !known.has("j:" + d.n));
+  const cur = curLvl(), want = +String(sub || "").replace(/^phase/, "");
+  if (want >= 1 && want <= 4) state.coursPh = want;
+  const P = state.coursPh || (next ? next.ph : 4);
+  const list = days.filter(d => d.ph === P), ldone = list.filter(d => known.has("j:" + d.n)).length;
+  const weeks = [...new Set(list.map(d => d.wk))];
+  const tag = d => /Mock/.test(d.title) ? '<span class="chip">Examen blanc</span>' : /Interview/.test(d.title) ? '<span class="chip">Entretien</span>' : /Review|Test|Assessment/.test(d.title) ? '<span class="chip">Révision</span>' : "";
+  const row = d => `<li class="tile cday${known.has("j:" + d.n) ? " known" : ""}${next && next.n === d.n ? " next" : ""}" id="day-${d.n}"><span class="cnum">${d.n}</span><div class="gtxt"><b lang="en">${esc(d.title)}</b><span class="small muted" lang="en">${esc(d.theme)} · ${coursSize(d.file)}</span>${tag(d)}</div><div class="acts">${coursLinks(d.file, "le jour " + d.n)}${coursDoneBtn(d)}</div></li>`;
+  const note = cur === "A1" ? "Le programme PDF commence au niveau A2-B1. Fais d'abord les modules A1 du site, puis commence le jour 1."
+    : cur === "C1" ? "Le programme PDF s'arrête au B2. Pour le C1, utilise les modules du site." : "";
+  return `<header class="page-head"><span class="eyebrow">Programme structuré · A2-B1 → B2</span><h1>Cours PDF : 100 jours pour atteindre le B2</h1>
+    <p>Un PDF par jour, environ 4 heures de travail, dans l'ordre. Chaque jour contient un échauffement, les phrasal verbs et les chunks du jour, la grammaire, le vocabulaire, la lecture, l'écoute, l'expression orale et écrite, une histoire, puis les corrections. Le programme suit le format du Cambridge B2 First et se termine par des examens blancs.</p></header>
+  ${note ? `<p class="panel small">${note}</p>` : ""}
+  <section class="lvl-hero" style="--lc:var(--${coursPh(next ? next.ph : 4)[4]})">
+    <div class="lvl-hero-band"><b>${next ? next.n : "100"}</b><span>${next ? "jour suivant" : "terminé"}</span></div>
+    <div class="lvl-hero-body">
+      <span class="eyebrow">Mon avancement · ${done} / ${COURS_N} jours faits</span>
+      <div class="progress big"><i style="width:${Math.round(done / COURS_N * 100)}%"></i></div>
+      ${next ? `<h2 lang="en">Day ${next.n} : ${esc(next.title)}</h2><p class="muted small">${phTag(next.ph)} Semaine ${next.wk} · <span lang="en">${esc(next.theme)}</span></p><div class="row">${coursLinks(next.file)}${coursDoneBtn(next)}</div>`
+        : `<h2>Les 100 jours sont faits. Bravo !</h2><p class="muted">Passe ta certification B2, puis continue avec les modules C1 du site.</p>`}
+    </div>
+  </section>
+  <section class="panel"><h2>Comment t'en servir</h2><ol class="csteps">
+    <li><b>Jour 1 :</b> lis le guide du programme en entier et prépare ton journal d'erreurs (documents ci-dessous).</li>
+    <li><b>Un PDF par jour, dans l'ordre.</b> Ouvre-le à l'écran ou télécharge-le pour l'imprimer.</li>
+    <li><b>Le soir, clique sur « Marquer fait ».</b> Le site retient où tu en es et t'affiche le jour suivant.</li>
+    <li><b>Tous les 7 jours, c'est la révision.</b> Ne saute jamais ces jours-là : c'est là que tout se fixe.</li>
+    <li><b>En retard ? Décale, ne saute pas.</b> Mieux vaut finir au jour 110 avec des bases solides.</li>
+    <li><b>Complète avec le site, au même niveau :</b> podcasts, vocabulaire en images et conversation.</li>
+  </ol></section>
+  <section style="display:flex;flex-direction:column;gap:12px"><h2>Documents d'accompagnement</h2>
+    <div class="grid">${COURS_DOCS.map(([f, e, t, p]) => `<div class="tile"><div class="tile-top"><span class="pic" style="font-size:1.9rem">${e}</span><span class="small muted">${coursSize(f)}</span></div><h3>${t}</h3><p class="muted small">${p}</p><div class="row">${f.endsWith(".pdf") ? coursLinks(f, t) : `<a class="btn" href="cours/${f}" download="${f}">Télécharger</a>`}</div></div>`).join("")}</div>
+  </section>
+  <section style="display:flex;flex-direction:column;gap:14px"><h2>Les jours, phase par phase</h2>
+    <div class="pick-grid">${COURS_PH.map(([p, lv, name]) => { const ds = days.filter(d => d.ph === p), k = ds.filter(d => known.has("j:" + d.n)).length; return `<button class="tile cpick" style="--lc:var(--${coursPh(p)[4]})" data-act="cours-ph" data-p="${p}" aria-pressed="${p === P}"><span class="tile-top">${phTag(p)}<span class="small muted">${k} / ${ds.length}</span></span><b>Jours ${ds[0].n} à ${ds[ds.length - 1].n}</b><span class="small muted">${name} · ${lv}</span><span class="progress"><i style="width:${Math.round(k / ds.length * 100)}%"></i></span></button>`; }).join("")}</div>
+    <p class="muted">${phTag(P)} ${esc(coursPh(P)[3])} ${list.length} jours · ${ldone} faits.</p>
+    ${weeks.map(w => `<div class="cweek"><h3>Semaine ${w}</h3><ul class="clist">${list.filter(d => d.wk === w).map(row).join("")}</ul></div>`).join("")}
+  </section>`;
+}
+
 /* ---------- tips ---------- */
 function pageTips() {
   return `<header class="page-head"><span class="eyebrow">Méthode</span><h1>Conseils pour arrêter de traduire</h1><p>Traduire, c'est normal au début : ton cerveau s'appuie sur ce qu'il connaît. Ces ${D.tips.length} habitudes créent peu à peu un chemin direct vers l'anglais. Choisis-en deux cette semaine, pas douze.</p></header>
@@ -1180,7 +1244,7 @@ function pageChat() {
 }
 
 /* ================= ROUTER ================= */
-const PAGES = { home: pageHome, levels: pageLevels, audio: pageAudio, podcasts: pagePodcasts, chat: pageChat, stories: pageStories, vocab: pageVocab, chunks: pageChunks, phrasal: pagePhrasal, grammar: pageGrammar, phonetics: pagePhonetics, tips: pageTips };
+const PAGES = { home: pageHome, levels: pageLevels, audio: pageAudio, podcasts: pagePodcasts, chat: pageChat, stories: pageStories, vocab: pageVocab, chunks: pageChunks, phrasal: pagePhrasal, grammar: pageGrammar, phonetics: pagePhonetics, tips: pageTips, cours: pageCours };
 function render(keepScroll) {
   const h = (location.hash || "#home").slice(1);
   const i = h.indexOf("-");
@@ -1274,6 +1338,8 @@ const ACTS = {
   "chat-mic": () => Mic.startChat(),
   "chat-new": () => { if (chatCtl) chatCtl.abort(); chat.msgs = []; chatErr = null; chatSugg = null; saveChat(); renderChatLog(); },
   "chat-sc": b => { if (chatCtl) chatCtl.abort(); chat.sc = b.dataset.s; chat.msgs = []; chatErr = null; chatSugg = null; saveChat(); rerender(); chatAsk(); },
+  "cours-ph": b => { state.coursPh = +b.dataset.p; rerender(); },
+  "cours-done": b => { const n = +b.dataset.n; toggleKnown("j:" + n); if (known.has("j:" + n)) toast(n === COURS_N ? "Les 100 jours sont faits. Bravo !" : `Jour ${n} fait. À demain pour le jour ${n + 1} !`); rerender(); },
   "pair-next": () => { state.pg.cur = null; rerender(); const c = state.pg.cur; Audio.speak(c.it[c.side * 2 + 1]); }
 };
 document.addEventListener("click", e => {
